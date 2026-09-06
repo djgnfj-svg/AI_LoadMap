@@ -16,7 +16,12 @@
 ```
 docs/SPEC.md                   기준 문서 (§0 불변 규칙 R1~R6 포함)
 supabase/migrations/           §4 스키마. 11개 테이블 + 노드 상태 뷰
+frontend/
+  src/screens/GoalInput.tsx    목표 입력 → clarify → SSE 진행
+  src/screens/Main.tsx         2분할 + 양방향 하이라이트
+  src/components/ArchNode.tsx  §2.5 노드 상태 4종 렌더
 backend/
+  scripts/seed_self.py         이 프로젝트 자신의 로드맵을 시드로 (§6.2 백필 기반)
   app/graphs/                  LangGraph 생성 그래프
     critic.py                  검증 (LLM 미개입) — 이 그래프의 존재 이유
     repair.py                  재시도 소진 시 결정적 복구
@@ -58,7 +63,11 @@ cp ../.env.example ../.env    # DATABASE_URL, ANTHROPIC_API_KEY 채우기
 ```bash
 cd backend
 .venv/bin/python -m pytest -q
-.venv/bin/ruff check app tests
+.venv/bin/ruff check app tests scripts
+
+cd ../frontend
+npm run build      # tsc -b && vite build
+npm run lint
 ```
 
 `critic` · `repair` · 생성 그래프 테스트는 **API 키 없이** 돈다 (`tests/fakes.py` 의 가짜 Planner).
@@ -69,6 +78,25 @@ cd backend
 TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 ```
 
+## 화면 띄우기
+
+```bash
+# 터미널 1 — 백엔드
+cd backend && .venv/bin/uvicorn app.main:app --reload
+
+# 터미널 2 — 프론트 (개발 중에는 /projects, /tickets 를 :8000 으로 프록시한다)
+cd frontend && npm install && npm run dev
+```
+
+API 키 없이 화면만 보려면, 이 프로젝트 자신의 로드맵을 시드로 넣는다.
+§1.7 이 "가짜 데이터 금지"라 가짜 프로젝트를 만들지 않고 docs/SPEC.md §6.1 의 실제 일정을 넣는다.
+
+```bash
+cd backend
+DATABASE_URL=... .venv/bin/python scripts/seed_self.py --reset
+# 출력된 http://localhost:5173/#/<project_id> 로 접속
+```
+
 ## 진행 상황
 
 | 일차 | 작업 | 상태 |
@@ -76,10 +104,10 @@ TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 | D1 | Supabase 스키마 + FastAPI 뼈대 | 완료 |
 | D2 | 생성 그래프 (intake→emit) | 완료 |
 | D3 | `critic` 루프 + 2시간 규칙 | 완료 |
-| D4 | React 기본 화면 + 티켓 보드 | — |
-| D5 | React Flow 다이어그램 | — |
-| D6 | 노드 채워지는 연동 | 백엔드 완료 (`PATCH /tickets/{id}` → `node_changes`) |
-| D7 | 이벤트 기록 + 스케줄러 + 백필 | 이벤트 기록만 완료 |
+| D4 | React 기본 화면 + 티켓 보드 | 완료 |
+| D5 | React Flow 다이어그램 | 완료 |
+| D6 | 노드 채워지는 연동 | 완료 (티켓 완료 → 노드 채움, 지연 2건 → at_risk) |
+| D7 | 이벤트 기록 + 스케줄러 + 백필 | 이벤트 기록 · 시드 스크립트 완료 / 스케줄러 남음 |
 | D8 | 알람 + 재점검일 생성 | — |
 | D9 | 재설계 그래프 + diff 승인 | — |
 

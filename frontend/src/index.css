@@ -1,0 +1,248 @@
+/* Roadmap Planner — 단일 스타일시트. R6(새 기술 추가 금지)에 따라 CSS 프레임워크를 쓰지 않는다. */
+
+:root {
+  --bg: #0e1116;
+  --panel: #161b22;
+  --panel-2: #1c232c;
+  --border: #262d36;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --dim: #6e7681;
+
+  /* §2.5 노드 상태 색. at_risk 가 화면에서 가장 큰 소리를 내야 한다. */
+  --pending: #484f58;
+  --progress: #58a6ff;
+  --done: #3fb950;
+  --risk: #f85149;
+
+  --radius: 10px;
+  font-family: ui-sans-serif, system-ui, "Pretendard", "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--dim); background: #232b35; }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: #1f6feb; border-color: #1f6feb; }
+button.primary:hover:not(:disabled) { background: #2b7cf3; }
+
+input, textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  width: 100%;
+}
+input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
+
+/* ── 목표 입력 화면 ────────────────────────────────────────── */
+.goal-screen {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12vh 24px 60px;
+}
+.goal-screen h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.02em; }
+.goal-screen .lede { color: var(--muted); margin: 0 0 32px; }
+.goal-screen textarea { min-height: 110px; resize: vertical; }
+.field-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+.field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.goal-screen .actions { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
+
+/* 생성 진행 (SSE) */
+.steps { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 20px; }
+.step {
+  display: flex; align-items: baseline; gap: 10px; padding: 6px 0; color: var(--muted);
+}
+.step .dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--progress); flex: none;
+}
+.step.fail .dot { background: var(--risk); }
+.step.pass .dot { background: var(--done); }
+.step .detail { font-size: 12px; color: var(--dim); }
+.step-counts { font-size: 12px; color: var(--dim); margin-left: auto; }
+
+.notice {
+  margin-top: 18px; padding: 12px 14px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--panel);
+}
+.notice.warn { border-color: #9e6a03; background: #1d1a10; }
+.notice.error { border-color: var(--risk); background: #1d1214; }
+.notice h4 { margin: 0 0 8px; font-size: 13px; }
+.notice ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+
+.clarify-q { margin-bottom: 14px; }
+.clarify-q p { margin: 0 0 6px; }
+
+/* ── 메인 2분할 (§5) ───────────────────────────────────────── */
+.main {
+  display: grid;
+  grid-template-columns: minmax(340px, 34%) 1fr;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+/* 상세를 띄워도 다이어그램을 가리지 않는다 — 하이라이트가 이 제품의 인상이다 */
+.main.with-detail { grid-template-columns: minmax(300px, 26%) 1fr minmax(340px, 30%); }
+.topbar {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.topbar h2 { font-size: 15px; margin: 0; font-weight: 600; }
+.topbar .goal { color: var(--dim); font-size: 12px; flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.topbar .stat { font-size: 12px; color: var(--muted); }
+.topbar .stat b { color: var(--text); font-weight: 600; }
+
+.pane { overflow-y: auto; }
+.pane.left { border-right: 1px solid var(--border); padding: 14px 14px 60px; }
+.pane.right { position: relative; }
+
+/* 필터 배너 — 노드를 고르면 티켓이 걸러진다 */
+.filter-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; margin-bottom: 12px;
+  border: 1px solid #1f6feb; background: #0d1b2e; border-radius: 8px; font-size: 13px;
+}
+.filter-banner button { padding: 2px 8px; font-size: 12px; }
+
+/* 티켓 보드 */
+.milestone { margin-bottom: 22px; }
+.milestone > h3 {
+  font-size: 13px; margin: 0 0 4px; display: flex; gap: 8px; align-items: baseline;
+}
+.milestone .meta { font-size: 11px; color: var(--dim); font-weight: 400; }
+.week { margin: 10px 0 0 0; }
+.week > h4 {
+  font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 500;
+  display: flex; gap: 8px; align-items: baseline;
+}
+.week .bar {
+  flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden;
+}
+.week .bar i { display: block; height: 100%; background: var(--done); }
+
+.ticket {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px 10px; margin-bottom: 4px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: var(--panel); cursor: pointer;
+}
+.ticket:hover { border-color: var(--border); }
+.ticket.selected { border-color: #1f6feb; background: #101a26; }
+.ticket.done .title { color: var(--dim); text-decoration: line-through; }
+.ticket.blocked { border-left: 3px solid var(--risk); }
+.ticket .check {
+  width: 16px; height: 16px; flex: none; margin-top: 2px;
+  border: 1.5px solid var(--dim); border-radius: 4px;
+  display: grid; place-items: center; font-size: 11px; color: var(--bg);
+}
+.ticket.done .check { background: var(--done); border-color: var(--done); }
+.ticket .body { min-width: 0; flex: 1; }
+.ticket .title { font-size: 13px; }
+.ticket .sub { font-size: 11px; color: var(--dim); display: flex; gap: 8px; margin-top: 2px; }
+.ticket .sub .delay { color: var(--risk); }
+
+/* 티켓 상세 (§5) */
+.detail {
+  background: var(--panel); border-left: 1px solid var(--border);
+  padding: 18px; overflow-y: auto; min-width: 0;
+}
+.detail header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 4px; }
+.detail h3 { margin: 0; font-size: 16px; flex: 1; }
+.detail .sub { color: var(--dim); font-size: 12px; margin-bottom: 16px; }
+.detail pre {
+  white-space: pre-wrap; word-break: break-word;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; font-size: 12.5px; line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.detail section { margin-top: 18px; }
+.detail section h5 {
+  margin: 0 0 8px; font-size: 11px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--dim);
+}
+.detail .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--border); background: var(--panel-2); margin: 0 6px 6px 0;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--dim); }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* ── React Flow 커스텀 노드 (§2.5) ─────────────────────────── */
+.arch-node {
+  position: relative;
+  width: 180px; padding: 10px 12px; border-radius: 10px;
+  background: var(--panel); color: var(--text);
+  border: 1.5px solid var(--pending);
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+}
+/* 채움은 배경 레이어로 그린다 — 진행률이 그림에서 바로 읽혀야 한다.
+   지연 배지는 노드 밖으로 나가므로 채움만 따로 잘라낸다. */
+.arch-node .fill-clip {
+  position: absolute; inset: 0; overflow: hidden; border-radius: inherit;
+}
+.arch-node .fill {
+  display: block; height: 100%; width: 0; background: rgba(88, 166, 255, 0.16);
+  transition: width 0.45s ease;
+}
+.arch-node .content { position: relative; }
+.arch-node .label { font-size: 13px; font-weight: 600; }
+.arch-node .meta { font-size: 10.5px; color: var(--dim); margin-top: 2px; }
+
+.arch-node.done { border-color: var(--done); }
+.arch-node.done .fill { background: rgba(63, 185, 80, 0.2); }
+.arch-node.in_progress { border-color: var(--progress); }
+.arch-node.at_risk {
+  border-color: var(--risk); border-width: 2px;
+  box-shadow: 0 0 0 4px rgba(248, 81, 73, 0.14);
+}
+.arch-node.at_risk .fill { background: rgba(248, 81, 73, 0.14); }
+.arch-node .risk-badge {
+  position: absolute; top: -8px; right: -6px;
+  background: var(--risk); color: #fff; font-size: 10px; font-weight: 600;
+  padding: 1px 6px; border-radius: 999px;
+}
+.arch-node.highlighted { box-shadow: 0 0 0 3px #1f6feb; }
+.arch-node.dimmed { opacity: 0.28; }
+
+.legend {
+  position: absolute; left: 12px; bottom: 12px; z-index: 5;
+  display: flex; gap: 14px; padding: 8px 12px;
+  background: rgba(22, 27, 34, 0.92); border: 1px solid var(--border); border-radius: 8px;
+  font-size: 11px; color: var(--muted);
+}
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend i {
+  width: 14px; height: 10px; border-radius: 3px;
+  border: 1.5px solid; background: transparent;
+}
+
+.empty { color: var(--dim); padding: 40px 12px; text-align: center; font-size: 13px; }
+.link-btn {
+  background: none; border: none; padding: 0; color: #58a6ff;
+  text-decoration: underline; cursor: pointer;
+}
