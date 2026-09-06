@@ -23,7 +23,7 @@ def build_planner():
     USE_MOCK_PLANNER=true 면 API 키 없이 생성·재설계 그래프가 끝까지 돈다 (§0.3 데모용).
     """
     settings = get_settings()
-    if settings.use_mock_planner or not settings.anthropic_api_key:
+    if settings.use_mock_planner or not settings.has_real_api_key:
         from app.graphs.mock_planner import MockPlanner
 
         log.warning("목업 Planner 로 동작한다. LLM 을 부르지 않는다.")

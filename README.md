@@ -15,10 +15,13 @@
 
 ```
 docs/SPEC.md                   기준 문서 (§0 불변 규칙 R1~R6 포함)
-supabase/migrations/           §4 스키마. 11개 테이블 + 노드 상태 뷰
+supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 뷰
+scripts/setup.sh               로컬 세팅 한 방
+scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
   src/screens/GoalInput.tsx    목표 입력 → clarify → SSE 진행
   src/screens/Main.tsx         2분할 + 양방향 하이라이트
+  src/screens/ReviewSession.tsx 재점검 세션 (집계 → 진단 → diff → 승인)
   src/components/ArchNode.tsx  §2.5 노드 상태 4종 렌더
 backend/
   scripts/seed_self.py         이 프로젝트 자신의 로드맵을 시드로 (§6.2 백필 기반)
@@ -49,75 +52,71 @@ backend/
 | R4 `missed`는 이벤트 | `defer` 는 `delay_count` 만 올리고 `status` 는 유지. 같은 마감일에 두 번 기록하지 않는다 |
 | R5 알람은 진단 | "netcode 쪽에서 3번 멈췄어요. 다시 짤까요?" — 문구가 기능이다 |
 
-## 개발 환경
+## 시작하기
 
 ```bash
-# 1) DB
-#    Supabase 프로젝트의 connection string 을 쓰거나, 로컬 Postgres 를 쓴다.
+git clone https://github.com/djgnfj-svg/AI_LoadMap.git
+cd AI_LoadMap
+
+./scripts/setup.sh --seed-demo   # DB 생성 + 마이그레이션 + 의존성 + 시드
+./scripts/dev.sh                 # 백엔드 :8000 + 프론트 :5173
+```
+
+필요한 것: **Python 3.11+**, **Node 20+**, **PostgreSQL 14+**.
+
+`setup.sh` 가 출력하는 `http://localhost:5173/#/<project_id>` 로 들어가면
+로드맵 · 아키텍처 · at_risk 노드 · 재점검일이 이미 잡힌 상태로 시작합니다.
+
+| 명령 | 하는 일 |
+|---|---|
+| `./scripts/setup.sh` | DB · 의존성 · `.env` 만 준비 |
+| `./scripts/setup.sh --seed` | + 이 프로젝트 자신의 로드맵 시드 |
+| `./scripts/setup.sh --seed-demo` | + 지연·막힘 이력까지 (감지·재점검을 바로 보려면) |
+| `./scripts/dev.sh` | 백엔드 + 프론트 동시 실행 |
+
+접속 정보를 바꾸려면 `DATABASE_URL=... ./scripts/setup.sh` 로 넘기거나
+루트 `.env` 를 직접 고칩니다. Supabase 를 쓸 거면 프로젝트의
+Settings → Database → Connection string (URI) 을 그대로 넣으면 됩니다.
+
+### API 키 없이 돌리기
+
+`.env` 의 `ANTHROPIC_API_KEY` 가 비어 있으면 **목업 Planner** 가 들어갑니다.
+그래프 구조 · critic 재시도 · 진단 · 재설계는 그대로 돌고 LLM 호출만 결정적 목업으로 바뀝니다.
+목업은 **첫 분해에서 일부러 120분을 넘겨** critic 재시도가 화면에 보이게 합니다.
+
+실제 Claude 를 쓰려면 [키](https://console.anthropic.com/settings/keys)를 `.env` 에 넣으면 됩니다.
+
+### 직접 세팅하기
+
+```bash
 createdb roadmap_planner
 psql -d roadmap_planner -f supabase/migrations/0001_init.sql
+psql -d roadmap_planner -f supabase/migrations/0002_alerts.sql
 
-# 2) 백엔드
-cd backend
-uv venv --python 3.11 .venv
-VIRTUAL_ENV=.venv uv pip install -e ".[dev]"
-cp ../.env.example ../.env    # DATABASE_URL, ANTHROPIC_API_KEY 채우기
-
-.venv/bin/uvicorn app.main:app --reload   # http://localhost:8000/docs
+cd backend && uv venv --python 3.11 .venv && VIRTUAL_ENV=.venv uv pip install -e ".[dev]"
+cd ../frontend && npm install
+cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 읽는다.
 ```
 
 ## 테스트
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q          # 107개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend
-npm run build      # tsc -b && vite build
+npm run build                          # tsc -b && vite build
 npm run lint
 ```
 
-`critic` · `repair` · 생성 그래프 테스트는 **API 키 없이** 돈다 (`tests/fakes.py` 의 가짜 Planner).
-저장 · API 테스트는 Postgres 가 필요하고, 없으면 자동으로 skip 한다.
+`critic` · `repair` · 생성/재설계 그래프 테스트는 **API 키 없이** 돕니다 (목업 Planner).
+DB 테스트는 Postgres 가 필요하고, 없으면 자동으로 skip 합니다.
 
 ```bash
 # 다른 DB 를 쓰려면
 TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 ```
-
-## 화면 띄우기
-
-```bash
-# 터미널 1 — 백엔드
-cd backend && .venv/bin/uvicorn app.main:app --reload
-
-# 터미널 2 — 프론트 (개발 중에는 /projects, /tickets 를 :8000 으로 프록시한다)
-cd frontend && npm install && npm run dev
-```
-
-### API 키 없이 돌리기
-
-`ANTHROPIC_API_KEY` 가 비어 있거나 `USE_MOCK_PLANNER=true` 면 목업 Planner 가 들어간다.
-그래프 구조·critic 재시도·진단·재설계는 그대로 돌고, LLM 호출만 결정적 목업으로 바뀐다.
-목업은 **첫 분해에서 일부러 120분을 넘겨** critic 재시도가 화면에 보이게 한다.
-
-### 시드
-
-이 프로젝트 자신의 로드맵을 넣는다. §1.7 이 "가짜 데이터 금지"라 가짜 프로젝트를 만들지 않고
-docs/SPEC.md §6.1 의 실제 일정과 실제 완료 이력을 넣는다.
-
-```bash
-cd backend
-DATABASE_URL=... .venv/bin/python scripts/seed_self.py --reset
-
-# 감지·재점검 흐름까지 보려면 (지연·막힘 이력을 얹는다 — 이 부분만 목업이다)
-DATABASE_URL=... .venv/bin/python scripts/seed_self.py --reset --demo-history
-# 출력된 http://localhost:5173/#/<project_id> 로 접속
-```
-
-`--demo-history` 를 주면 지연 2건이 쌓여 `배포` 노드가 `at_risk` 가 되고,
-재점검일과 알람이 자동으로 잡힌 상태에서 시작한다.
 
 ## 진행 상황
 

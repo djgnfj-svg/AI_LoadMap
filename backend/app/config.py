@@ -1,12 +1,18 @@
 """환경 설정. SPEC §3.1 스택 기준."""
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# .env 는 레포 루트에 둔다. 백엔드는 backend/ 에서 실행되므로 상대 경로로는 못 찾는다.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(_REPO_ROOT / ".env", Path(".env")), extra="ignore"
+    )
 
     # Supabase(PostgreSQL) 연결 문자열. 로컬 개발 시 일반 Postgres 도 그대로 쓴다.
     database_url: str = "postgresql://postgres:postgres@localhost:5432/roadmap_planner"
@@ -30,6 +36,18 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+    @property
+    def has_real_api_key(self) -> bool:
+        """자리표시자를 진짜 키로 착각하지 않는다.
+
+        .env.example 을 그대로 복사하면 sk-ant-... 같은 문자열이 들어오는데,
+        이걸 키로 믿고 실제 클라이언트를 만들면 "로드맵 만들기"를 누르는 순간
+        401 로 죽는다. 로컬에서 처음 돌려보는 사람이 가장 먼저 밟는 지점이다.
+        """
+        key = (self.anthropic_api_key or "").strip()
+        return len(key) > 20 and "..." not in key
 
 
 @lru_cache
