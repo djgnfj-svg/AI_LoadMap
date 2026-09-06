@@ -5,7 +5,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { api, type ProjectView, type Ticket } from "../api";
+import { alertsApi, api, type Alert, type ProjectView, type Ticket } from "../api";
+import { AlertsPanel } from "../components/AlertsPanel";
 import { ArchDiagram } from "../components/ArchDiagram";
 import { TicketBoard } from "../components/TicketBoard";
 import { TicketDetail } from "../components/TicketDetail";
@@ -13,17 +14,25 @@ import { TicketDetail } from "../components/TicketDetail";
 interface Props {
   projectId: string;
   onBack: () => void;
+  onOpenReview: (reviewDayId: string) => void;
 }
 
-export function Main({ projectId, onBack }: Props) {
+export function Main({ projectId, onBack, onOpenReview }: Props) {
   const [view, setView] = useState<ProjectView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
 
   const refresh = useCallback(async () => {
     try {
-      setView(await api.getProject(projectId));
+      const [project, alertData] = await Promise.all([
+        api.getProject(projectId),
+        alertsApi.list(projectId).catch(() => ({ alerts: [] as Alert[], review_days: [] })),
+      ]);
+      setView(project);
+      setAlerts(alertData.alerts);
     } catch (e) {
       setError(String(e));
     }
@@ -89,7 +98,7 @@ export function Main({ projectId, onBack }: Props) {
   const selectedNode = view.arch_nodes.find((n) => n.id === selectedNodeId) ?? null;
 
   return (
-    <div className={selectedTicket ? "main with-detail" : "main"}>
+    <div className={selectedTicket || showAlerts ? "main with-detail" : "main"}>
       <div className="topbar">
         <button onClick={onBack}>←</button>
         <h2>{view.project.title}</h2>
@@ -102,6 +111,15 @@ export function Main({ projectId, onBack }: Props) {
             막힌 컴포넌트 <b>{atRisk.length}</b>
           </span>
         )}
+        <button
+          onClick={() => {
+            setShowAlerts((v) => !v);
+            setSelectedTicketId(null);
+          }}
+        >
+          알람
+          {alerts.length > 0 && <span className="badge">{alerts.length}</span>}
+        </button>
       </div>
 
       <div className="pane left">
@@ -127,7 +145,10 @@ export function Main({ projectId, onBack }: Props) {
           view={view}
           visibleTicketIds={visibleTicketIds}
           selectedTicketId={selectedTicketId}
-          onSelectTicket={(t) => setSelectedTicketId(t.id === selectedTicketId ? null : t.id)}
+          onSelectTicket={(t) => {
+            setSelectedTicketId(t.id === selectedTicketId ? null : t.id);
+            setShowAlerts(false);
+          }}
           onToggleDone={(t) => void act(t, t.status === "done" ? "start" : "complete")}
         />
       </div>
@@ -137,13 +158,22 @@ export function Main({ projectId, onBack }: Props) {
           view={view}
           selectedNodeId={selectedNodeId}
           highlightedNodeIds={highlightedNodeIds}
-          refitSignal={selectedTicketId}
+          refitSignal={`${selectedTicketId}:${showAlerts}`}
           onSelectNode={(id) => {
             setSelectedNodeId(id);
             setSelectedTicketId(null);
           }}
         />
       </div>
+
+      {showAlerts && !selectedTicket && (
+        <AlertsPanel
+          projectId={projectId}
+          onClose={() => setShowAlerts(false)}
+          onOpenReview={onOpenReview}
+          onChanged={() => void refresh()}
+        />
+      )}
 
       {selectedTicket && (
         <TicketDetail

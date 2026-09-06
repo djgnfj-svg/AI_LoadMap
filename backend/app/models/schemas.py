@@ -175,3 +175,92 @@ class TicketPatchRequest(BaseModel):
     action: Literal["start", "complete", "block", "unblock", "defer"]
     reason: str | None = None
     new_due_date: str | None = None  # defer 전용 (ISO date)
+
+
+# ─────────────────────────────────────────────────────────────
+# 재설계 (SPEC §3.4, §2.4)
+# ─────────────────────────────────────────────────────────────
+class ReplanSignals(BaseModel):
+    """collect_signals 출력. 전부 SQL 집계다 — AI 미개입 (R2).
+
+    재점검 세션은 이 숫자를 먼저 보여주고 시작한다 (§2.4 1단계).
+    """
+
+    node_key: str
+    node_label: str
+    total_tickets: int
+    done_tickets: int
+    delayed_tickets: int
+    missed_count: int
+    deferred_count: int
+    avg_delay_days: float
+    blocked_reasons: list[str]
+
+
+class DiagnoseResult(BaseModel):
+    """§2.4 2단계 — 여기서부터 AI 가 등장한다."""
+
+    diagnosis: Diagnosis
+    rationale: str
+
+
+ChangeType = Literal[
+    "split_ticket",     # 범위과다 — 티켓 재분할
+    "add_ticket",       # 지식부족 — 선행 학습 티켓 삽입 / 의존성누락 — 선행 티켓 추가
+    "reduce_ticket",    # 범위과다 — 목표 범위 축소
+    "drop_ticket",      # 범위과다 — 이번 범위에서 제외
+    "add_dependency",   # 의존성누락 — 순서 교체
+    "shift_milestone",  # 외부요인 — 일정만 이월, 내용 유지
+]
+
+
+class SplitPart(BaseModel):
+    title: str
+    est_minutes: int
+
+
+class ProposedChange(BaseModel):
+    """LLM 이 내는 제안 한 건. 티켓은 uuid 대신 T1, T2 같은 참조로 가리킨다."""
+
+    type: ChangeType
+    target_ref: str      # 대상 티켓 참조 (add_ticket/shift_milestone 은 빈 문자열)
+    depends_on_ref: str  # add_dependency / add_ticket 의 선행 티켓 참조
+    reason: str
+    title: str           # add_ticket, reduce_ticket
+    body: str
+    est_minutes: int     # add_ticket, reduce_ticket
+    parts: list[SplitPart]  # split_ticket
+    shift_days: int      # shift_milestone
+
+
+class ReplanProposal(BaseModel):
+    changes: list[ProposedChange]
+
+
+class ReplanChange(BaseModel):
+    """diff 한 항목. 사용자는 이 단위로 승인/거절한다 (§2.4 4단계)."""
+
+    id: str
+    type: ChangeType
+    label: str
+    reason: str
+    before: str | None = None
+    after: str | None = None
+    op: dict  # 적용에 필요한 구체 데이터 (uuid 포함)
+
+
+class ReplanDiff(BaseModel):
+    signals: ReplanSignals
+    diagnosis: Diagnosis
+    rationale: str
+    scope_milestone_id: str
+    scope_milestone_title: str
+    changes: list[ReplanChange]
+    residual_violations: list[Violation] = []
+    repairs: list[str] = []
+
+
+class ReplanApplyRequest(BaseModel):
+    """항목별 승인. 목록에 없는 항목은 거절로 본다."""
+
+    approved: list[str]

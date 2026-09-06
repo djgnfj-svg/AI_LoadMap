@@ -167,3 +167,100 @@ def decompose_prompt(goal_text: str, c: Constraints) -> str:
         team_size=c.team_size,
         max_min=MAX_TICKET_MINUTES,
     )
+
+
+# ─────────────────────────────────────────────────────────────
+# 재설계 그래프 (SPEC §3.4)
+# ─────────────────────────────────────────────────────────────
+DIAGNOSE = """아래는 한 아키텍처 컴포넌트에서 반복해 막힌 기록이다.
+왜 막혔는지 진단하라.
+
+컴포넌트: {node_label} ({node_key})
+
+숫자 (전부 사용자의 실제 기록이다):
+- 이 컴포넌트에 걸린 티켓 {total}개 중 {done}개 완료, {delayed}개 지연
+- 마감 놓침 {missed}회, 사용자가 직접 미룬 것 {deferred}회
+- 평균 지연 {avg_delay}일
+
+사용자가 직접 적은 막힘 사유:
+{blocked}
+
+진단은 넷 중 하나다:
+- 지식부족: 무엇을 해야 하는지는 알지만 방법을 모른다
+- 범위과다: 티켓이 여전히 크거나 목표 자체가 크다
+- 의존성누락: 먼저 끝냈어야 할 게 있는데 순서가 잘못됐다
+- 외부요인: 계획 문제가 아니다 (외부 일정, 대기, 개인 사정)
+
+rationale 은 위 숫자를 근거로 두 문장 이내로 쓴다. 사용자를 책망하지 않는다.
+"""
+
+
+PRESCRIPTION = {
+    "지식부족": (
+        "선행 학습 티켓을 삽입한다 (add_ticket). 막힌 티켓보다 앞에 두고, "
+        "body 의 참고 항목에 무엇을 읽고 무엇을 만들어보면 되는지 적는다. "
+        "막힌 티켓 자체는 건드리지 않는다."
+    ),
+    "범위과다": (
+        "티켓을 다시 쪼개거나(split_ticket) 목표 범위를 줄인다"
+        "(reduce_ticket / drop_ticket). 이번에 꼭 필요하지 않은 건 drop 한다."
+    ),
+    "의존성누락": (
+        "빠진 선행 티켓을 추가하고(add_ticket) 순서를 잡는다(add_dependency). "
+        "티켓 내용을 바꾸지는 않는다."
+    ),
+    "외부요인": (
+        "계획은 그대로 두고 일정만 이월한다(shift_milestone). "
+        "티켓을 쪼개거나 지우지 않는다."
+    ),
+}
+
+
+REPLAN = """재점검 세션이다. 막힌 구간만 다시 설계하라.
+
+진단: {diagnosis}
+근거: {rationale}
+
+처방:
+{prescription}
+
+범위는 마일스톤 「{milestone_title}」 하나다. 이 밖은 손대지 않는다.
+전체를 다시 그리면 사용자가 자기 계획이라고 느끼지 않는다.
+
+현재 이 마일스톤의 티켓:
+{tickets}
+
+제약: 주당 {hours_per_week}시간 (= {capacity}분), 티켓 하나는 {max_min}분 이내.
+
+낼 것:
+- 변경 3~8건. 처방에 맞는 종류만 쓴다.
+- target_ref / depends_on_ref 에는 위 목록의 T번호를 그대로 쓴다.
+- 쓰지 않는 필드는 빈 문자열이나 0 으로 둔다.
+- 완료된(done) 티켓은 건드리지 않는다. 이미 한 일을 되돌리는 제안은 하지 않는다.
+- 각 변경의 reason 은 위 숫자나 막힘 사유를 근거로 한 문장.
+"""
+
+
+REPLAN_RETRY = """방금 낸 제안을 적용해봤더니 검증에서 걸렸다. 고쳐서 다시 내라.
+
+위반:
+{violations}
+
+- 걸린 항목만 바꾼다.
+- 티켓을 쪼갤 때 각 조각은 {max_min}분 이내여야 한다.
+- 주차별 합계가 가용시간을 넘으면 티켓을 줄이거나 뒤로 미뤄라.
+"""
+
+
+def format_scope_tickets(rows: list[dict]) -> str:
+    """T1, T2 ... 참조가 붙은 티켓 목록. LLM 은 uuid 대신 이 참조를 쓴다."""
+    lines = []
+    for row in rows:
+        deps = f" <- {','.join(row['depends_on_refs'])}" if row["depends_on_refs"] else ""
+        delay = f" 지연 {row['delay_count']}회" if row["delay_count"] else ""
+        blocked = f" 막힘: {row['blocked_reason']}" if row.get("blocked_reason") else ""
+        lines.append(
+            f"{row['ref']} [{row['week_index']}주차] {row['title']} "
+            f"({row['est_minutes']}분, {row['status']}){delay}{deps}{blocked}"
+        )
+    return "\n".join(lines)

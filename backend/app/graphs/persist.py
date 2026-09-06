@@ -227,3 +227,104 @@ async def persist_plan(
         )
 
     return project_id
+
+
+async def load_draft(conn: asyncpg.Connection, project_id: uuid.UUID) -> PlanDraft:
+    """DB 에 저장된 계획을 PlanDraft 로 되읽는다.
+
+    key 로 uuid 문자열을 그대로 쓴다. critic 은 key 가 서로 맞는지만 보므로
+    생성 그래프의 초안이든 DB 에서 읽은 계획이든 같은 검증이 그대로 돈다.
+    """
+    from app.models.schemas import (
+        DraftEdge,
+        DraftLink,
+        DraftMilestone,
+        DraftNode,
+        DraftTicket,
+        DraftWeeklyGoal,
+    )
+
+    milestones = await conn.fetch(
+        "select * from milestones where project_id = $1 order by order_index", project_id
+    )
+    goals = await conn.fetch(
+        "select g.* from weekly_goals g join milestones m on m.id = g.milestone_id "
+        "where m.project_id = $1 order by g.week_index",
+        project_id,
+    )
+    tickets = await conn.fetch(
+        "select * from tickets where project_id = $1 order by order_index", project_id
+    )
+    deps = await conn.fetch(
+        "select d.* from ticket_dependencies d join tickets t on t.id = d.ticket_id "
+        "where t.project_id = $1",
+        project_id,
+    )
+    nodes = await conn.fetch("select * from arch_nodes where project_id = $1", project_id)
+    edges = await conn.fetch("select * from arch_edges where project_id = $1", project_id)
+    links = await conn.fetch(
+        "select l.* from ticket_node_links l join tickets t on t.id = l.ticket_id "
+        "where t.project_id = $1",
+        project_id,
+    )
+
+    node_key_by_id = {n["id"]: n["node_key"] for n in nodes}
+    depends = {}
+    for d in deps:
+        depends.setdefault(str(d["ticket_id"]), []).append(str(d["depends_on"]))
+
+    return PlanDraft(
+        milestones=[
+            DraftMilestone(
+                key=str(m["id"]),
+                order_index=m["order_index"],
+                title=m["title"],
+                description=m["description"] or "",
+            )
+            for m in milestones
+        ],
+        weekly_goals=[
+            DraftWeeklyGoal(
+                key=str(g["id"]),
+                milestone_key=str(g["milestone_id"]),
+                week_index=g["week_index"],
+                title=g["title"],
+            )
+            for g in goals
+        ],
+        tickets=[
+            DraftTicket(
+                key=str(t["id"]),
+                weekly_goal_key=str(t["weekly_goal_id"]),
+                order_index=t["order_index"],
+                title=t["title"],
+                body=t["body"] or "",
+                est_minutes=t["est_minutes"],
+                depends_on=depends.get(str(t["id"]), []),
+            )
+            for t in tickets
+        ],
+        nodes=[
+            DraftNode(
+                node_key=n["node_key"],
+                label=n["label"],
+                node_type=n["node_type"] or "service",
+                layer=n["layer"] or "backend",
+            )
+            for n in nodes
+        ],
+        edges=[
+            DraftEdge(
+                from_key=node_key_by_id[e["from_node"]],
+                to_key=node_key_by_id[e["to_node"]],
+                label=e["label"] or "",
+            )
+            for e in edges
+            if e["from_node"] in node_key_by_id and e["to_node"] in node_key_by_id
+        ],
+        links=[
+            DraftLink(ticket_key=str(link["ticket_id"]), node_key=node_key_by_id[link["node_id"]])
+            for link in links
+            if link["node_id"] in node_key_by_id
+        ],
+    )

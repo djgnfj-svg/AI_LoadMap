@@ -95,12 +95,12 @@ TICKETS = [
     ("t14", "m2", 1, "React Flow 커스텀 노드 상태 4종", 120, ["diagram"], ["t11"], True, 5),
     ("t15", "m2", 1, "티켓 완료 → 노드 상태 갱신", 90, ["diagram", "api"], ["t13", "t14"], True, 6),
     ("t16", "m2", 1, "티켓↔노드 양방향 하이라이트", 90, ["diagram", "board"], ["t15"], True, 6),
-    ("t17", "m3", 2, "APScheduler 붙이고 missed 자동 기록", 90, ["scheduler", "events"], ["t07"], False, None),
-    ("t18", "m3", 2, "실제 이력 백필 스크립트", 90, ["events"], ["t17"], False, None),
-    ("t19", "m3", 2, "알람 규칙 5종 (§2.3)", 120, ["scheduler", "events"], ["t17"], False, None),
-    ("t20", "m3", 2, "재점검일 자동 생성 (§4.5 SQL)", 90, ["scheduler", "db"], ["t19"], False, None),
-    ("t21", "m3", 2, "재설계 그래프 collect_signals → diff", 120, ["replan_graph"], ["t20"], False, None),
-    ("t22", "m3", 2, "diff 항목별 승인 UI", 120, ["board", "replan_graph"], ["t21"], False, None),
+    ("t17", "m3", 2, "APScheduler 붙이고 missed 자동 기록", 90, ["scheduler", "events"], ["t07"], True, 7),
+    ("t18", "m3", 2, "실제 이력 백필 스크립트", 90, ["events"], ["t17"], True, 7),
+    ("t19", "m3", 2, "알람 규칙 5종 (§2.3)", 120, ["scheduler", "events"], ["t17"], True, 8),
+    ("t20", "m3", 2, "재점검일 자동 생성 (§4.5 SQL)", 90, ["scheduler", "db"], ["t19"], True, 8),
+    ("t21", "m3", 2, "재설계 그래프 collect_signals → diff", 120, ["replan_graph"], ["t20"], True, 9),
+    ("t22", "m3", 2, "diff 항목별 승인 UI", 120, ["board", "replan_graph"], ["t21"], True, 9),
     ("t23", "m4", 2, "실제 프로젝트로 시드 + 검증", 90, ["events"], ["t18"], False, None),
     ("t24", "m4", 2, "배포 (공개 URL)", 120, ["deploy"], ["t22"], False, None),
     ("t25", "m4", 2, "데모 영상 3분 촬영·편집", 120, ["deploy"], ["t24"], False, None),
@@ -166,6 +166,11 @@ def build_draft() -> PlanDraft:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--reset", action="store_true", help="같은 제목의 기존 시드를 지운다")
+    parser.add_argument(
+        "--demo-history",
+        action="store_true",
+        help="아직 안 한 일에 지연·막힘 이력을 얹는다 (감지·재점검 데모용 목업)",
+    )
     args = parser.parse_args()
 
     dsn = os.environ.get("DATABASE_URL")
@@ -203,6 +208,8 @@ async def main() -> None:
                 start_date=START,
             )
             await _backfill_progress(conn, project_id)
+            if args.demo_history:
+                await _demo_history(conn, project_id)
     finally:
         await conn.close()
 
@@ -260,6 +267,67 @@ async def _backfill_progress(conn: asyncpg.Connection, project_id) -> None:
         project_id,
     )
     print(f"  완료 백필: {completed}개 티켓")
+
+
+# 아래는 §1.7 이 말하는 "실제 프로젝트"가 아니라 감지·재점검 흐름을 보여주기 위한 목업이다.
+# --demo-history 를 줬을 때만 들어간다. 기본 시드는 위까지가 전부이고 그건 전부 실제 기록이다.
+DEMO_DELAYS = [
+    ("배포 (공개 URL)", 4, "도메인 연결에서 CORS 가 계속 막힌다"),
+    ("데모 영상 3분 촬영·편집", 2, None),
+]
+
+
+async def _demo_history(conn: asyncpg.Connection, project_id) -> None:
+    """마감이 지난 티켓 + 막힘 사유를 만들어 재점검일이 잡히게 한다."""
+    from app.services.alerts import generate_alerts
+    from app.services.detection import record_missed_tickets
+
+    today = date.today()
+    for title, overdue, reason in DEMO_DELAYS:
+        row = await conn.fetchrow(
+            "select id from tickets where project_id = $1 and title = $2",
+            project_id,
+            title,
+        )
+        if row is None:
+            continue
+        await conn.execute(
+            "update tickets set due_date = $2 where id = $1",
+            row["id"],
+            today - timedelta(days=overdue),
+        )
+        if reason:
+            await conn.execute(
+                "update tickets set status = 'blocked', blocked_reason = $2 where id = $1",
+                row["id"],
+                reason,
+            )
+            node_id = await conn.fetchval(
+                "select node_id from ticket_node_links where ticket_id = $1 limit 1", row["id"]
+            )
+            await conn.execute(
+                "insert into events (project_id, ticket_id, node_id, type, payload) "
+                "values ($1, $2, $3, 'blocked', $4)",
+                project_id,
+                row["id"],
+                node_id,
+                {"reason": reason},
+            )
+
+    missed = await record_missed_tickets(conn, today)
+    alerts = await generate_alerts(conn, project_id, today)
+    await conn.execute(
+        """
+        update arch_nodes n set status = s.status
+        from v_node_status s where s.node_id = n.id and n.project_id = $1
+        """,
+        project_id,
+    )
+    reviews = await conn.fetchval(
+        "select count(*) from review_days where project_id = $1 and status = 'scheduled'",
+        project_id,
+    )
+    print(f"  데모 이력: missed {missed}건 / 알람 {alerts}건 / 재점검일 {reviews}건")
 
 
 if __name__ == "__main__":

@@ -7,28 +7,54 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
-from app.api import projects, tickets
+from app.api import alerts, projects, reviews, tickets
 from app.config import get_settings
+from app.graphs.replan_graph import build_replan_graph
+from app.scheduler import build_scheduler
 from app.services.planner_runs import PlanRunner
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
-def build_runner() -> PlanRunner:
+def build_planner():
+    """설정에 따라 실제 Claude 또는 목업을 돌려준다.
+
+    USE_MOCK_PLANNER=true 면 API 키 없이 생성·재설계 그래프가 끝까지 돈다 (§0.3 데모용).
+    """
+    settings = get_settings()
+    if settings.use_mock_planner or not settings.anthropic_api_key:
+        from app.graphs.mock_planner import MockPlanner
+
+        log.warning("목업 Planner 로 동작한다. LLM 을 부르지 않는다.")
+        return MockPlanner()
+
     from app.graphs.llm import AnthropicPlanner
 
-    return PlanRunner(AnthropicPlanner())
+    return AnthropicPlanner()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
     await db.init_pool()
     if not hasattr(app.state, "runner"):
-        app.state.runner = build_runner()
+        planner = build_planner()
+        app.state.runner = PlanRunner(planner)
+        app.state.replan_graph = build_replan_graph(planner)
+    elif not hasattr(app.state, "replan_graph"):
+        app.state.replan_graph = build_replan_graph(build_planner())
+
+    scheduler = None
+    if settings.scheduler_enabled:
+        scheduler = build_scheduler()
+        scheduler.start()
+        log.info("스케줄러 시작: %s", [j.id for j in scheduler.get_jobs()])
     try:
         yield
     finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
         await db.close_pool()
 
 
@@ -50,6 +76,8 @@ def create_app() -> FastAPI:
     )
     app.include_router(projects.router)
     app.include_router(tickets.router)
+    app.include_router(alerts.router)
+    app.include_router(reviews.router)
 
     @app.get("/health")
     async def health() -> dict:

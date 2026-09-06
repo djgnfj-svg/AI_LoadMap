@@ -183,3 +183,121 @@ export function streamGeneration(
 
   return close;
 }
+
+// ─────────────────────────────────────────────────────────────
+// 알람 (SPEC §2.3, §3.5)
+// ─────────────────────────────────────────────────────────────
+export type AlertRule =
+  | "due_24h"
+  | "deferred_twice"
+  | "node_at_risk"
+  | "weekly_low"
+  | "inactive_3d";
+
+export interface Alert {
+  id: string;
+  rule: AlertRule;
+  severity: "low" | "medium" | "high";
+  message: string;
+  acknowledged: boolean;
+  created_at: string;
+  ticket_id: string | null;
+  ticket_title: string | null;
+  node_id: string | null;
+  node_label: string | null;
+  review_day_id: string | null;
+  review_date: string | null;
+  review_status: string | null;
+}
+
+export interface ReviewDay {
+  id: string;
+  node_id: string | null;
+  node_label: string | null;
+  node_key: string | null;
+  scheduled_date: string;
+  trigger_reason: string | null;
+  status: string;
+  postponed_count: number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 재점검 세션 (SPEC §2.4, §3.4)
+// ─────────────────────────────────────────────────────────────
+export interface ReplanSignals {
+  node_key: string;
+  node_label: string;
+  total_tickets: number;
+  done_tickets: number;
+  delayed_tickets: number;
+  missed_count: number;
+  deferred_count: number;
+  avg_delay_days: number;
+  blocked_reasons: string[];
+}
+
+export type ChangeType =
+  | "split_ticket"
+  | "add_ticket"
+  | "reduce_ticket"
+  | "drop_ticket"
+  | "add_dependency"
+  | "shift_milestone";
+
+export interface ReplanChange {
+  id: string;
+  type: ChangeType;
+  label: string;
+  reason: string;
+  before: string | null;
+  after: string | null;
+}
+
+export interface ReplanDiff {
+  signals: ReplanSignals;
+  diagnosis: string;
+  rationale: string;
+  scope_milestone_id: string;
+  scope_milestone_title: string;
+  changes: ReplanChange[];
+  residual_violations: { code: string; message: string }[];
+  repairs: string[];
+}
+
+export interface ReviewView {
+  review_day: ReviewDay & { project_id: string };
+  signals: ReplanSignals;
+  session: { id: string; diagnosis: string; applied: boolean; diff: ReplanDiff } | null;
+}
+
+export const alertsApi = {
+  list: (projectId: string) =>
+    request<{ alerts: Alert[]; review_days: ReviewDay[] }>(`/projects/${projectId}/alerts`),
+  ack: (alertId: string) =>
+    request<{ id: string }>(`/alerts/${alertId}/ack`, { method: "POST" }),
+  /** 스케줄러 작업을 즉시 한 번 돌린다 (데모·개발용). */
+  detect: (projectId: string) =>
+    request<{
+      missed_events: number;
+      review_days_created: number;
+      alerts_created: number;
+    }>(`/projects/${projectId}/detect`, { method: "POST", body: JSON.stringify({}) }),
+};
+
+export const reviewsApi = {
+  get: (reviewDayId: string) => request<ReviewView>(`/reviews/${reviewDayId}`),
+  run: (reviewDayId: string) =>
+    request<{ session_id: string; diff: ReplanDiff }>(`/reviews/${reviewDayId}/run`, {
+      method: "POST",
+    }),
+  apply: (reviewDayId: string, approved: string[]) =>
+    request<{ approved: string[]; rejected: string[]; applied: string[] }>(
+      `/reviews/${reviewDayId}/apply`,
+      { method: "POST", body: JSON.stringify({ approved }) },
+    ),
+  postpone: (reviewDayId: string, scheduledDate: string) =>
+    request<{ scheduled_date: string; postponed_count: number }>(`/reviews/${reviewDayId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ scheduled_date: scheduledDate }),
+    }),
+};

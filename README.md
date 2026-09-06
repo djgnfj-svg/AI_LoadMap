@@ -26,10 +26,16 @@ backend/
     critic.py                  검증 (LLM 미개입) — 이 그래프의 존재 이유
     repair.py                  재시도 소진 시 결정적 복구
     plan_graph.py              intake → clarify → decompose → architect → link → critic → emit
+    replan_graph.py            collect_signals → diagnose → replan_scope → propose → critic → diff
+    replan.py                  제안 → 승인 단위 변환 (순환·120분 위반은 여기서 걸러낸다)
     persist.py                 emit — 검증된 초안을 DB 로
     llm.py                     Claude 호출 경계면 (테스트에서 가짜로 교체)
+    mock_planner.py            API 키 없이 그래프를 끝까지 돌리는 목업
   app/api/                     §3.5 REST + SSE
-  app/services/                이벤트 기록, 노드 상태 동기화, 그래프 실행 관리
+  app/scheduler.py             §3.6 스케줄러 4개 작업
+  app/services/detection.py    §2.3·§4.5 실패 감지 — 전부 SQL (R2)
+  app/services/alerts.py       §2.3 알람 5종 (톤은 R5)
+  app/services/               이벤트 기록, 노드 상태 동기화, 재설계 적용
   tests/                       critic / repair / 그래프 / 저장 / API
 ```
 
@@ -38,8 +44,10 @@ backend/
 | 규칙 | 코드에서 강제되는 지점 |
 |---|---|
 | R1 티켓 ≤ 120분 | `tickets.est_minutes` CHECK 제약 + `critic.py` + 실패 시 `repair.py` 자동 재분할 |
-| R2 감지는 SQL만 | `v_node_status` 뷰, `events` 집계. LLM 은 `app/graphs/llm.py` 밖으로 나가지 않는다 |
-| R4 `missed`는 이벤트 | `PATCH /tickets/{id}` 의 `defer` 는 `delay_count` 만 올리고 `status` 는 유지 |
+| R2 감지는 SQL만 | `detection.py` · `alerts.py` · `v_node_status` 뷰에 LLM 호출이 없다. AI 는 `diagnose`/`propose` 두 노드에만 등장한다 |
+| R3 재설계는 마일스톤 1개 | `replan_scope` 가 지연이 가장 많은 마일스톤 하나만 고른다 |
+| R4 `missed`는 이벤트 | `defer` 는 `delay_count` 만 올리고 `status` 는 유지. 같은 마감일에 두 번 기록하지 않는다 |
+| R5 알람은 진단 | "netcode 쪽에서 3번 멈췄어요. 다시 짤까요?" — 문구가 기능이다 |
 
 ## 개발 환경
 
@@ -88,14 +96,28 @@ cd backend && .venv/bin/uvicorn app.main:app --reload
 cd frontend && npm install && npm run dev
 ```
 
-API 키 없이 화면만 보려면, 이 프로젝트 자신의 로드맵을 시드로 넣는다.
-§1.7 이 "가짜 데이터 금지"라 가짜 프로젝트를 만들지 않고 docs/SPEC.md §6.1 의 실제 일정을 넣는다.
+### API 키 없이 돌리기
+
+`ANTHROPIC_API_KEY` 가 비어 있거나 `USE_MOCK_PLANNER=true` 면 목업 Planner 가 들어간다.
+그래프 구조·critic 재시도·진단·재설계는 그대로 돌고, LLM 호출만 결정적 목업으로 바뀐다.
+목업은 **첫 분해에서 일부러 120분을 넘겨** critic 재시도가 화면에 보이게 한다.
+
+### 시드
+
+이 프로젝트 자신의 로드맵을 넣는다. §1.7 이 "가짜 데이터 금지"라 가짜 프로젝트를 만들지 않고
+docs/SPEC.md §6.1 의 실제 일정과 실제 완료 이력을 넣는다.
 
 ```bash
 cd backend
 DATABASE_URL=... .venv/bin/python scripts/seed_self.py --reset
+
+# 감지·재점검 흐름까지 보려면 (지연·막힘 이력을 얹는다 — 이 부분만 목업이다)
+DATABASE_URL=... .venv/bin/python scripts/seed_self.py --reset --demo-history
 # 출력된 http://localhost:5173/#/<project_id> 로 접속
 ```
+
+`--demo-history` 를 주면 지연 2건이 쌓여 `배포` 노드가 `at_risk` 가 되고,
+재점검일과 알람이 자동으로 잡힌 상태에서 시작한다.
 
 ## 진행 상황
 
@@ -107,9 +129,11 @@ DATABASE_URL=... .venv/bin/python scripts/seed_self.py --reset
 | D4 | React 기본 화면 + 티켓 보드 | 완료 |
 | D5 | React Flow 다이어그램 | 완료 |
 | D6 | 노드 채워지는 연동 | 완료 (티켓 완료 → 노드 채움, 지연 2건 → at_risk) |
-| D7 | 이벤트 기록 + 스케줄러 + 백필 | 이벤트 기록 · 시드 스크립트 완료 / 스케줄러 남음 |
-| D8 | 알람 + 재점검일 생성 | — |
-| D9 | 재설계 그래프 + diff 승인 | — |
+| D7 | 이벤트 기록 + 스케줄러 + 백필 | 완료 |
+| D8 | 알람 + 재점검일 생성 | 완료 |
+| D9 | 재설계 그래프 + diff 승인 | 완료 |
+| D10 | 실제 프로젝트 투입 | `scripts/seed_self.py` 로 시드 완료, 계속 쓰면서 검증 남음 |
+| D11 | UI 정리 + 배포 | — |
 
 ## API
 
@@ -121,6 +145,11 @@ DATABASE_URL=... .venv/bin/python scripts/seed_self.py --reset
 | GET | `/projects/{id}` | 로드맵 + 아키텍처 + 노드 상태 |
 | PATCH | `/tickets/{id}` | `start` / `complete` / `block` / `unblock` / `defer` |
 | POST | `/tickets/{id}/block` | 막힘 사유 한 줄 입력 |
-| GET | `/projects/{id}/alerts` | D8 |
-| POST | `/reviews/{id}/run` · `/apply` | D9 |
+| GET | `/projects/{id}/alerts` | 미확인 알람 + 잡힌 재점검일 |
+| POST | `/alerts/{id}/ack` | 알람 확인 |
+| POST | `/projects/{id}/detect` | 스케줄러 작업을 즉시 한 번 (데모·개발용) |
+| GET | `/reviews/{id}` | 집계 숫자 + 저장된 재설계 결과 |
+| POST | `/reviews/{id}/run` | 재설계 그래프 실행 |
+| POST | `/reviews/{id}/apply` | diff 항목별 승인/거절 |
+| PATCH | `/reviews/{id}` | 재점검일 미루기 (삭제는 없다) |
 | GET | `/projects/{id}/export` | 자를 수 있는 항목 (§0.3) |

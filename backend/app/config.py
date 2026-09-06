@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     llm_model: str = "claude-sonnet-5"
     llm_max_tokens: int = 16000
+    # API 키 없이 데모·개발할 때. 그래프는 그대로 돌고 LLM 만 목업으로 바뀐다.
+    use_mock_planner: bool = False
 
     # SPEC §3.3 — critic 실패 시 decompose 재시도 상한
     critic_max_retries: int = 3
