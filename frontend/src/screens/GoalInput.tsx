@@ -112,7 +112,7 @@ export function GoalInput({ onCreated }: Props) {
           <button className="primary" onClick={submit} disabled={goal.trim().length < 5 || running}>
             {running ? "생성 중…" : "로드맵 만들기"}
           </button>
-          <span className="step detail">비워두면 목표 문장에서 추론하고, 애매하면 되묻습니다.</span>
+          <span className="hint">비워두면 목표 문장에서 추론하고, 애매하면 되묻습니다.</span>
         </div>
       )}
 

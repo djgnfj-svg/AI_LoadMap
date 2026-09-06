@@ -68,6 +68,7 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 .field-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
 .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .goal-screen .actions { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
+.hint { font-size: 12px; color: var(--dim); }
 
 /* 생성 진행 (SSE) */
 .steps { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 20px; }
