@@ -1,0 +1,38 @@
+[project]
+name = "roadmap-planner-backend"
+version = "0.1.0"
+description = "Roadmap Planner — 목표를 넣으면 로드맵과 아키텍처가 함께 그려지고, 진행 기록에 따라 다시 그려지는 도구"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.34",
+    "asyncpg>=0.30",
+    "anthropic>=1.4.0",
+    "langgraph>=1.2.11",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.15.0",
+    "apscheduler>=3.11.3",
+    "sse-starlette>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx2",
+    "ruff>=0.9",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
