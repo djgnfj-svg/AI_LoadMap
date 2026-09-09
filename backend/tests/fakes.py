@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.models.schemas import (
     ArchitectResult,
+    BlueprintResult,
     ClarifyQuestion,
     ClarifyResult,
     Constraints,
@@ -18,14 +19,27 @@ from app.models.schemas import (
     DraftWeeklyGoal,
     IntakeResult,
     LinkResult,
+    SuccessCriterion,
 )
 
 
-def make_decompose(est_minutes: int = 90, n_tickets: int = 4) -> DecomposeResult:
+BLUEPRINT = BlueprintResult(
+    summary="돌아가는 로드맵 도구",
+    criteria=[
+        SuccessCriterion(key="sc1", text="목표를 넣으면 티켓이 나온다"),
+        SuccessCriterion(key="sc2", text="티켓을 끝내면 다이어그램이 채워진다"),
+    ],
+)
+
+
+def make_decompose(
+    est_minutes: int = 90, n_tickets: int = 4, covers: list[list[str]] | None = None
+) -> DecomposeResult:
+    covered = covers or [["sc1"], ["sc2"]]
     return DecomposeResult(
         weekly_goals=[
-            DraftWeeklyGoal(key="w1", week_index=1, title="1주 - 기반"),
-            DraftWeeklyGoal(key="w2", week_index=2, title="2주 - 연결"),
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주 - 기반", covers=covered[0]),
+            DraftWeeklyGoal(key="w2", week_index=2, title="2주 - 연결", covers=covered[1]),
         ],
         tasks=[
             DraftTask(
@@ -80,6 +94,7 @@ class FakePlanner:
         *,
         missing: list[str] | None = None,
         followups: list[str] | None = None,
+        blueprint: BlueprintResult | None = None,
         constraints: Constraints | None = None,
         n_tickets: int = 4,
     ) -> None:
@@ -87,6 +102,7 @@ class FakePlanner:
         self.missing = missing or []
         # 2라운드 후속 질문. 기본은 「더 물을 것 없음」이다 (1라운드로 끝난다).
         self.followups = followups or []
+        self.blueprint = blueprint if blueprint is not None else BLUEPRINT
         self.constraints = constraints or Constraints(
             duration_weeks=4,
             hours_per_week=10,
@@ -114,6 +130,8 @@ class FakePlanner:
                     ClarifyQuestion(field=f, question=f"{f} 알려주세요") for f in self.followups
                 ]
             )
+        if name == "BlueprintResult":
+            return self.blueprint
         if name == "DecomposeResult":
             index = min(self.calls.count("DecomposeResult") - 1, len(self.decompose_results) - 1)
             return self.decompose_results[index]

@@ -4,6 +4,7 @@ import pytest
 
 from app.graphs.critic import run_critic
 from app.models.schemas import (
+    Blueprint,
     Constraints,
     DraftEdge,
     DraftLink,
@@ -12,6 +13,7 @@ from app.models.schemas import (
     DraftTicket,
     DraftWeeklyGoal,
     PlanDraft,
+    SuccessCriterion,
 )
 
 CONSTRAINTS = Constraints(
@@ -205,3 +207,48 @@ def test_중복_키를_잡는다():
         ]
     )
     assert "duplicate_key" in codes(d)
+
+
+# ── 청사진 커버리지 (§3.3) ─────────────────────────────────────
+BLUEPRINT = Blueprint(
+    summary="돌아가는 것",
+    criteria=[
+        SuccessCriterion(key="sc1", text="목표를 넣으면 티켓이 나온다"),
+        SuccessCriterion(key="sc2", text="티켓을 끝내면 노드가 채워진다"),
+    ],
+)
+
+
+def test_어느_주도_안_맡은_완성_기준은_걸린다():
+    """사용자가 말한 완성 조건이 계획에서 사라지는 것을 여기서 잡는다."""
+    d = draft(
+        blueprint=BLUEPRINT,
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주", covers=["sc1"])],
+    )
+    assert "uncovered_criterion" in codes(d)
+
+
+def test_모든_기준을_주가_맡으면_통과한다():
+    d = draft(
+        blueprint=BLUEPRINT,
+        weekly_goals=[
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주", covers=["sc1", "sc2"])
+        ],
+    )
+    assert "uncovered_criterion" not in codes(d)
+
+
+def test_없는_기준을_가리키면_끊긴_참조다():
+    d = draft(
+        blueprint=BLUEPRINT,
+        weekly_goals=[
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주", covers=["sc1", "sc2", "sc9"])
+        ],
+    )
+    assert "dangling_reference" in codes(d)
+
+
+def test_기준이_없으면_커버리지를_따지지_않는다():
+    """인터뷰를 전부 건너뛴 경우다. 없는 기준을 지어내 강요하지 않는다."""
+    d = draft(weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")])
+    assert codes(d) == set()

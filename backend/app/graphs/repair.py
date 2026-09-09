@@ -47,6 +47,8 @@ def repair_draft(draft: PlanDraft, constraints: Constraints) -> tuple[PlanDraft,
     notes += n
     d, n = _link_unlinked_tickets(d)
     notes += n
+    d, n = _cover_criteria(d)
+    notes += n
     _renumber(d)
 
     return d, notes
@@ -381,6 +383,35 @@ def _link_unlinked_tickets(d: PlanDraft) -> tuple[PlanDraft, list[str]]:
         )
         d.links.append(DraftLink(ticket_key=t.key, node_key=node_key))
     return d, [f"노드에 연결되지 않은 티켓 {len(unlinked)}개를 인접 노드에 연결"]
+
+
+def _cover_criteria(d: PlanDraft) -> tuple[PlanDraft, list[str]]:
+    """어느 주도 맡지 않은 완성 기준을 마지막 주에 붙인다.
+
+    ⚠ 이건 「덮었다」가 아니라 「어디에 둘지 못 정했다」에 가깝다. LLM 이 세 번
+    다 못 배치한 것이므로, 마지막 주로 몰아두고 무엇을 몰았는지 그대로 밝힌다.
+    조용히 기준을 지우지 않는다 — 사용자가 말한 완성 조건이기 때문이다.
+    """
+    criteria = {c.key: c.text for c in d.blueprint.criteria}
+    if not criteria or not d.weekly_goals:
+        return d, []
+
+    # 없는 기준을 가리키는 covers 는 먼저 턴다.
+    for g in d.weekly_goals:
+        g.covers = [k for k in g.covers if k in criteria]
+
+    covered = {k for g in d.weekly_goals for k in g.covers}
+    missing = [k for k in criteria if k not in covered]
+    if not missing:
+        return d, []
+
+    last = max(d.weekly_goals, key=lambda g: g.week_index)
+    last.covers = list(dict.fromkeys([*last.covers, *missing]))
+    detail = ", ".join(criteria[k] for k in missing[:3])
+    return d, [
+        f"어느 주에도 안 들어간 완성 기준 {len(missing)}개를 마지막 주({last.week_index}주차)로 "
+        f"모았다 — 확인이 필요하다: {detail}"
+    ]
 
 
 def _renumber(d: PlanDraft) -> None:

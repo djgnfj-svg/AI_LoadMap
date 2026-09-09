@@ -21,6 +21,14 @@ export interface Project {
   };
   status: string;
   start_date: string;
+  /** §3.3 인터뷰에서 뽑은 완성 청사진. 인터뷰를 건너뛰면 criteria 가 빈 배열이다. */
+  blueprint: { summary?: string; criteria?: SuccessCriterion[] };
+}
+
+/** 「무엇이 되면 끝났다고 할 수 있나」 한 줄. 주(weekly_goal)가 covers 로 가리킨다. */
+export interface SuccessCriterion {
+  key: string;
+  text: string;
 }
 
 /** 주 — 관리 단위이자 최상위. */
@@ -30,6 +38,8 @@ export interface WeeklyGoal {
   week_index: number | null;
   title: string;
   target_date: string | null;
+  /** 이 주가 끝내는 완성 기준 key 목록 (§3.3). */
+  covers: string[];
 }
 
 /** 태스크 — 한 덩어리로 묶이는 티켓들의 집. 한 태스크는 한 주에만 산다. */

@@ -84,10 +84,11 @@ async def persist_plan(
     ) or date.today()
 
     await conn.execute(
-        "update projects set title = $2, constraints = $3 where id = $1",
+        "update projects set title = $2, constraints = $3, blueprint = $4 where id = $1",
         project_id,
         title,
         constraints.model_dump(),
+        draft.blueprint.model_dump(),
     )
 
     # ── 주 (관리 단위이자 최상위) ──────────────────────────────
@@ -98,14 +99,15 @@ async def persist_plan(
         goal_target[g.key] = target
         goal_ids[g.key] = await conn.fetchval(
             """
-            insert into weekly_goals (project_id, week_index, title, target_date)
-            values ($1, $2, $3, $4)
+            insert into weekly_goals (project_id, week_index, title, target_date, covers)
+            values ($1, $2, $3, $4, $5)
             returning id
             """,
             project_id,
             g.week_index,
             g.title,
             target,
+            g.covers,
         )
 
     # ── 태스크 ─────────────────────────────────────────────────

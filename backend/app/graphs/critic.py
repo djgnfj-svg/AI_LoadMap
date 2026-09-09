@@ -9,8 +9,12 @@ SPEC §3.3 이 명시한 4개 항목:
   3. 주간 티켓 합계 <= 가용시간
   4. 고아 노드 없음 (모든 노드에 티켓 1개 이상)
 
-여기에 초안이 자기 참조 무결성을 지키는지(끊긴 참조/중복 키/미연결 티켓)를 더한다.
-이것들이 깨지면 emit 단계에서 DB 제약으로 터지므로, 터지기 전에 잡아 재시도로 돌린다.
+여기에 두 가지를 더한다.
+  5. 청사진 커버리지 — 사용자가 말한 완성 기준을 맡는 주가 있는가.
+     AI 가 세운 기준을 AI 가 검사하는 게 아니다. 기준 key 와 주의 covers 를
+     맞춰보는 집합 연산이라 LLM 이 없다 (R2).
+  6. 자기 참조 무결성 (끊긴 참조/중복 키/미연결 티켓).
+     깨지면 emit 에서 DB 제약으로 터지므로, 터지기 전에 잡아 재시도로 돌린다.
 """
 
 from collections import Counter, defaultdict
@@ -183,6 +187,35 @@ def run_critic(draft: PlanDraft, constraints: Constraints) -> CriticResult:
                 targets=orphans,
             )
         )
+
+    # ── 5. 청사진 커버리지 (사용자가 말한 완성 기준을 맡는 주가 있는가) ──
+    # 기준이 없으면(인터뷰를 전부 건너뛴 경우) 검사할 것도 없다.
+    criteria = {c.key: c.text for c in draft.blueprint.criteria}
+    if criteria:
+        covered = {key for g in draft.weekly_goals for key in g.covers}
+        unknown = sorted(covered - set(criteria))
+        if unknown:
+            violations.append(
+                Violation(
+                    code="dangling_reference",
+                    message="없는 완성 기준을 가리키는 주가 있다: " + ", ".join(unknown[:10]),
+                    targets=unknown,
+                )
+            )
+        uncovered = [k for k in criteria if k not in covered]
+        if uncovered:
+            violations.append(
+                Violation(
+                    code="uncovered_criterion",
+                    message=(
+                        "어느 주도 맡지 않는 완성 기준이 있다: "
+                        + "; ".join(f"{k}({criteria[k]})" for k in uncovered[:5])
+                        + ". 그 기준을 끝내는 주의 covers 에 key 를 넣거나, "
+                        "그 주의 티켓을 그쪽으로 바꿔라."
+                    ),
+                    targets=uncovered,
+                )
+            )
 
     # ── 미연결 티켓 (§2.2 — 티켓은 노드를 물고 있어야 한다) ────
     linked_tickets = {link.ticket_key for link in draft.links}

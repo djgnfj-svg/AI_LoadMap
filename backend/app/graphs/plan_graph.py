@@ -1,6 +1,6 @@
 """생성 그래프 (SPEC §3.3).
 
-intake -> interview -> decompose -> architect -> link -> critic -> emit
+intake -> interview -> blueprint -> decompose -> architect -> link -> critic -> emit
                                      ^                    |
                                      +---- 실패(최대 3회) --+
 
@@ -28,6 +28,8 @@ from app.graphs.repair import repair_draft
 from app.graphs.state import PlanState
 from app.models.schemas import (
     ArchitectResult,
+    Blueprint,
+    BlueprintResult,
     ClarifyResult,
     Constraints,
     DecomposeResult,
@@ -134,17 +136,46 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
     def after_interview(state: PlanState) -> str:
         return "wait" if state.get("awaiting_clarify") else "decompose"
 
+    # ── blueprint ─────────────────────────────────────────────
+    async def blueprint(state: PlanState) -> dict:
+        """인터뷰 답에서 「완성」을 검증 가능한 기준으로 끊는다.
+
+        여기까지가 AI 다. 계획이 이 기준을 덮는지 확인하는 것은 critic 이 하고,
+        거기엔 LLM 이 없다 (R2).
+        """
+        turns: list[InterviewTurn] = state.get("interview") or []
+        if not any(t.answer.strip() for t in turns):
+            # 전부 건너뛴 인터뷰. 기준을 지어내지 않는다 — 없는 것도 사실이다.
+            return {"draft": (state.get("draft") or PlanDraft())}
+
+        result: BlueprintResult = await planner.structured(
+            system=prompts.SYSTEM,
+            prompt=prompts.BLUEPRINT.format(
+                goal_text=state["goal_text"],
+                transcript=prompts.format_transcript(turns),
+            ),
+            output_model=BlueprintResult,
+        )
+        draft = (state.get("draft") or PlanDraft()).model_copy(
+            update={"blueprint": Blueprint(summary=result.summary, criteria=result.criteria)}
+        )
+        return {"draft": draft}
+
     # ── decompose ─────────────────────────────────────────────
     async def decompose(state: PlanState) -> dict:
         constraints: Constraints = state["constraints"]
         attempt = state.get("attempt", 0)
+        previous_draft = state.get("draft") or PlanDraft()
         prompt = prompts.decompose_prompt(
-            state["goal_text"], constraints, state.get("interview") or []
+            state["goal_text"],
+            constraints,
+            state.get("interview") or [],
+            previous_draft.blueprint,
         )
 
         critic = state.get("critic")
         if critic and not critic.ok:
-            previous = state.get("draft") or PlanDraft()
+            previous = previous_draft
             prompt += "\n\n" + prompts.DECOMPOSE_RETRY.format(
                 violations=prompts.format_violations(critic),
                 previous=prompts.format_previous(previous),
@@ -156,8 +187,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
         result: DecomposeResult = await planner.structured(
             system=prompts.SYSTEM, prompt=prompt, output_model=DecomposeResult
         )
-        draft = state.get("draft") or PlanDraft()
-        draft = draft.model_copy(
+        draft = previous_draft.model_copy(
             update={
                 "weekly_goals": result.weekly_goals,
                 "tasks": result.tasks,
@@ -176,6 +206,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
             prompt=prompts.ARCHITECT.format(
                 goal_text=state["goal_text"],
                 stack=", ".join(constraints.stack) or "미정",
+                blueprint=prompts.format_blueprint(draft.blueprint),
                 plan=plan_text,
             ),
             output_model=ArchitectResult,
@@ -226,6 +257,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
     graph = StateGraph(PlanState)
     graph.add_node("intake", intake)
     graph.add_node("interview", interview)
+    graph.add_node("blueprint", blueprint)
     graph.add_node("decompose", decompose)
     graph.add_node("architect", architect)
     graph.add_node("link", link)
@@ -236,8 +268,9 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
     graph.add_edge(START, "intake")
     graph.add_edge("intake", "interview")
     graph.add_conditional_edges(
-        "interview", after_interview, {"wait": END, "decompose": "decompose"}
+        "interview", after_interview, {"wait": END, "decompose": "blueprint"}
     )
+    graph.add_edge("blueprint", "decompose")
     graph.add_edge("decompose", "architect")
     graph.add_edge("architect", "link")
     graph.add_edge("link", "critic")

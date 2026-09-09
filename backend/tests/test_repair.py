@@ -4,6 +4,7 @@ from app.graphs.critic import run_critic
 from app.graphs.repair import repair_draft
 from app.models.schemas import (
     MAX_TICKET_MINUTES,
+    Blueprint,
     Constraints,
     DraftEdge,
     DraftLink,
@@ -12,6 +13,7 @@ from app.models.schemas import (
     DraftTicket,
     DraftWeeklyGoal,
     PlanDraft,
+    SuccessCriterion,
 )
 
 CONSTRAINTS = Constraints(
@@ -138,3 +140,43 @@ def test_복구는_멱등이다():
     again, notes = repair_draft(fixed, CONSTRAINTS)
     assert notes == []
     assert {t.key for t in again.tickets} == {t.key for t in fixed.tickets}
+
+
+# ── 청사진 커버리지 복구 (§3.3) ────────────────────────────────
+def _with_blueprint() -> PlanDraft:
+    return PlanDraft(
+        blueprint=Blueprint(
+            criteria=[
+                SuccessCriterion(key="sc1", text="첫 화면이 뜬다"),
+                SuccessCriterion(key="sc2", text="검색이 된다"),
+            ]
+        ),
+        weekly_goals=[
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주", covers=["sc1"]),
+            DraftWeeklyGoal(key="w2", week_index=2, title="2주", covers=["sc9"]),
+        ],
+        tasks=[
+            DraftTask(key="k1", weekly_goal_key="w1", task_number=1, title="A", description=""),
+            DraftTask(key="k2", weekly_goal_key="w2", task_number=2, title="B", description=""),
+        ],
+        tickets=[
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="T1",
+                        body="b", est_minutes=60, depends_on=[]),
+            DraftTicket(key="t2", task_key="k2", ticket_number=1, title="T2",
+                        body="b", est_minutes=60, depends_on=[]),
+        ],
+        nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],
+        links=[DraftLink(ticket_key="t1", node_key="api"),
+               DraftLink(ticket_key="t2", node_key="api")],
+    )
+
+
+def test_안_맡은_완성_기준은_마지막_주로_모으고_밝힌다():
+    """조용히 지우지 않는다 — 사용자가 말한 완성 조건이다."""
+    fixed, notes = repair_draft(_with_blueprint(), CONSTRAINTS)
+
+    last = max(fixed.weekly_goals, key=lambda g: g.week_index)
+    assert "sc2" in last.covers
+    assert "sc9" not in last.covers  # 없는 기준을 가리키던 참조는 털어낸다
+    assert any("확인이 필요하다" in n for n in notes)
+    assert run_critic(fixed, CONSTRAINTS).ok

@@ -212,6 +212,18 @@ async def test_인터뷰_답변은_원문으로_저장된다(client):
     assert len(body["tickets"]) == 4
 
 
+async def test_완성_기준이_저장되고_주가_맡는다(client):
+    """§3.3 — 사용자가 말한 완성 조건이 계획에 남아 있어야 한다."""
+    project_id = await _create_and_wait(client)
+
+    body = (await client.get(f"/projects/{project_id}")).json()
+    criteria = body["project"]["blueprint"]["criteria"]
+    assert [c["key"] for c in criteria] == ["sc1", "sc2"]
+
+    covered = {k for g in body["weekly_goals"] for k in g["covers"]}
+    assert covered == {"sc1", "sc2"}  # 모든 기준을 어느 주가 맡는다
+
+
 async def test_새로고침해도_인터뷰가_이어진다(client):
     """질문이 메모리에만 있으면 새로고침 한 번에 프로젝트가 영영 멈춘다."""
     project_id = await _create(client)

@@ -6,6 +6,7 @@
 
 from app.models.schemas import (
     MAX_TICKET_MINUTES,
+    Blueprint,
     Constraints,
     CriticResult,
     InterviewTurn,
@@ -62,11 +63,29 @@ FOLLOWUP = """계획을 짜기 전에 사용자에게 청사진을 물었다. �
 """
 
 
+BLUEPRINT = """사용자가 말한 「완성」을 검증 가능한 항목으로 끊어라.
+
+목표:
+{goal_text}
+
+문답:
+{transcript}
+
+- criteria 는 3~6개. key 는 sc1, sc2 ... 순서대로 매긴다.
+- 각 text 는 **눈으로 확인할 수 있는 상태 한 줄**이다. 계획이 아니라 결과를 쓴다.
+  ✓ "친구 4명이 같은 방에 들어와 30분 동안 끊기지 않는다"
+  ✓ "낯선 사람이 회원가입 없이 첫 화면에서 검색까지 간다"
+  ✗ "네트워크 코드를 작성한다" (그건 할 일이지 완성 상태가 아니다)
+- 사용자가 말하지 않은 기준을 지어내지 마라. 답이 짧으면 항목도 적게 낸다.
+- summary 는 완성된 모습 한 문장. 사용자의 낱말을 그대로 쓴다.
+"""
+
+
 DECOMPOSE = """목표를 주 -> 태스크 -> 티켓으로 분해하라.
 
 목표:
 {goal_text}
-{interview}
+{interview}{blueprint}
 제약:
 - 기간 {duration_weeks}주, 주당 {hours_per_week}시간 (= 주당 {capacity}분)
 - 수준: {level}
@@ -78,6 +97,9 @@ DECOMPOSE = """목표를 주 -> 태스크 -> 티켓으로 분해하라.
 - 주(weekly_goals) 는 {duration_weeks} 개 이하. week_index 는 1부터 센다.
   key 는 w1, w2 ... 로 매긴다.
   그 주 마지막 저녁에 화면에 무엇이 있는지가 주의 제목이다.
+  * covers 에는 그 주가 **끝내는** 완성 기준의 key 를 넣는다 (위 「완성 기준」 목록).
+    거쳐가기만 하는 주는 비워 둔다. 모든 기준은 적어도 한 주가 맡아야 한다 —
+    아무도 안 맡은 기준이 있으면 검증에서 걸린다.
 - 태스크(tasks) 는 주마다 2~5개. 한 덩어리로 묶이는 티켓들의 집이다.
   key 는 k1, k2 ... 로 매긴다.
   * **한 태스크는 한 주에만 산다.** weekly_goal_key 는 하나뿐이다.
@@ -125,6 +147,7 @@ ARCHITECT = """이 프로젝트가 만들 시스템의 아키텍처를 그려라
 
 목표: {goal_text}
 스택: {stack}
+{blueprint}
 
 주와 태스크:
 {plan}
@@ -153,6 +176,18 @@ LINK = """티켓을 아키텍처 노드에 연결하라.
 - 한 티켓이 여러 노드에 걸치면 여러 줄을 낸다. 다만 3개를 넘기지는 마라
   — 어디서 막혔는지 특정하는 게 목적인데 다 걸치면 특정이 안 된다.
 """
+
+
+def format_blueprint(blueprint: Blueprint) -> str:
+    """완성 기준 목록. 주(weekly_goal)가 covers 로 가리킬 key 가 여기서 나온다."""
+    if not blueprint.criteria:
+        return ""
+    lines = ["", "완성 기준 (사용자의 답에서 뽑은 것이다):"]
+    if blueprint.summary:
+        lines.append(f"- 완성된 모습: {blueprint.summary}")
+    for c in blueprint.criteria:
+        lines.append(f"- {c.key}: {c.text}")
+    return "\n".join(lines) + "\n"
 
 
 def format_interview(turns: list[InterviewTurn]) -> str:
@@ -212,11 +247,15 @@ def format_previous(draft: PlanDraft) -> str:
 
 
 def decompose_prompt(
-    goal_text: str, c: Constraints, interview: list[InterviewTurn] | None = None
+    goal_text: str,
+    c: Constraints,
+    interview: list[InterviewTurn] | None = None,
+    blueprint: Blueprint | None = None,
 ) -> str:
     return DECOMPOSE.format(
         goal_text=goal_text,
         interview=format_interview(interview or []),
+        blueprint=format_blueprint(blueprint or Blueprint()),
         duration_weeks=c.duration_weeks,
         hours_per_week=c.hours_per_week,
         capacity=c.weekly_capacity_minutes,

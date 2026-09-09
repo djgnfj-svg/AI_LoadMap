@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.models.schemas import (
     ArchitectResult,
+    BlueprintResult,
     ClarifyQuestion,
     ClarifyResult,
     Constraints,
@@ -34,6 +35,7 @@ from app.models.schemas import (
     ProposedChange,
     ReplanProposal,
     SplitPart,
+    SuccessCriterion,
 )
 
 _PHASES = [
@@ -140,12 +142,32 @@ class MockPlanner:
             ]
         )
 
+    def _BlueprintResult(self, prompt: str) -> BlueprintResult:  # noqa: N802
+        """답변에서 문장을 끊어 완성 기준으로 만든다. 지어내지 않는다."""
+        answers = [
+            a
+            for a in re.findall(r"^A\. (.*)$", prompt, flags=re.MULTILINE)
+            if a and a != "(답을 건너뛰었다)"
+        ]
+        sentences: list[str] = []
+        for a in answers:
+            sentences += [s.strip() for s in re.split(r"[.。\n]|,\s", a) if len(s.strip()) >= 6]
+        picked = sentences[:3] or ["사용자가 말한 결과물이 돌아간다"]
+        return BlueprintResult(
+            summary=answers[0][:60] if answers else "",
+            criteria=[
+                SuccessCriterion(key=f"sc{i}", text=t) for i, t in enumerate(picked, start=1)
+            ],
+        )
+
     def _DecomposeResult(self, prompt: str) -> DecomposeResult:  # noqa: N802
         weeks = _int_from(prompt, r"기간 (\d+)주", 8)
         capacity = _int_from(prompt, r"주당 (\d+)분", 600)
         # 첫 호출은 일부러 120분을 넘겨 낸다 — critic 재시도가 데모에서 보여야 한다.
         first_try = self.calls.count("DecomposeResult") == 1 and not self.always_valid
 
+        # 완성 기준은 주에 골고루 나눠 맡긴다 (critic 의 커버리지 검증을 통과해야 한다).
+        criteria = re.findall(r"^- (sc\d+): ", prompt, flags=re.MULTILINE)
         goals, tasks, tickets = [], [], []
         weeks_per_phase = max(1, math.ceil(weeks / len(_PHASES)))
         week = 1
@@ -164,6 +186,7 @@ class MockPlanner:
                         key=goal_key,
                         week_index=week,
                         title=f"{week}주 - {phase}",
+                        covers=[],
                     )
                 )
                 # 주마다 태스크 하나. 번호는 프로젝트 전체에서 이어 센다.
@@ -205,6 +228,10 @@ class MockPlanner:
                     )
                     used += minutes
                 week += 1
+
+        # 남는 기준이 없도록 라운드로빈으로 배분한다.
+        for i, key in enumerate(criteria):
+            goals[i % len(goals)].covers.append(key)
         return DecomposeResult(weekly_goals=goals, tasks=tasks, tickets=tickets)
 
     def _ArchitectResult(self, prompt: str) -> ArchitectResult:  # noqa: N802

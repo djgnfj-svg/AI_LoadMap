@@ -19,13 +19,14 @@ supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 �
                                0003 이 계층을 주 > 태스크 > 티켓으로 바꾼다
                                0004 가 users 를 넣고 프로젝트에 주인을 붙인다
                                0005 가 인터뷰 문답을 프로젝트에 붙인다
+                               0006 이 완성 청사진과 주별 covers 를 넣는다
 scripts/setup.sh               로컬 세팅 한 방
 scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
   src/screens/Login.tsx        구글 로그인 (또는 데모 계정)
   src/screens/ProjectList.tsx  내 로드맵 목록
   src/screens/GoalInput.tsx    목표 입력 → 인터뷰(청사진부터) → SSE 진행
-  src/screens/Main.tsx         2분할 + 양방향 하이라이트
+  src/screens/Main.tsx         2분할 + 양방향 하이라이트 + 완성 청사진 패널
   src/screens/ReviewSession.tsx 재점검 세션 (집계 → 진단 → diff → 승인)
   src/components/ArchNode.tsx  §2.5 노드 상태 4종 렌더
 backend/
@@ -34,7 +35,7 @@ backend/
     critic.py                  검증 (LLM 미개입) — 이 그래프의 존재 이유
     interview.py               1라운드 고정 질문 (LLM 미개입) + 답변 → 제약 반영
     repair.py                  재시도 소진 시 결정적 복구
-    plan_graph.py              intake → interview → decompose → architect → link → critic → emit
+    plan_graph.py              intake → interview → blueprint → decompose → architect → link → critic → emit
     replan_graph.py            collect_signals → diagnose → replan_scope → propose → critic → diff
     replan.py                  제안 → 승인 단위 변환 (순환·120분 위반은 여기서 걸러낸다)
     persist.py                 emit — 검증된 초안을 DB 로
@@ -76,6 +77,7 @@ backend/
 | R3 재설계는 주 1개 | `replan_scope` 가 지연이 가장 많은 주 하나만 고른다 |
 | R4 `missed`는 이벤트 | `defer` 는 `delay_count` 만 올리고 `status` 는 유지. 같은 마감일에 두 번 기록하지 않는다 |
 | R5 알람은 진단 | "netcode 쪽에서 3번 멈췄어요. 다시 짤까요?" — 문구가 기능이다 |
+| 청사진 커버리지 | 사용자가 말한 완성 기준을 어느 주도 안 맡으면 `critic.py` 가 다시 쪼개게 한다 (집합 연산, LLM 미개입) |
 
 ## 시작하기
 
@@ -147,7 +149,7 @@ cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 134개
+.venv/bin/python -m pytest -q          # 144개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend

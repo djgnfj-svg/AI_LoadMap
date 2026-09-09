@@ -73,6 +73,31 @@ class InterviewTurn(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────
+# 완성 청사진 (SPEC §3.3)
+# ─────────────────────────────────────────────────────────────
+class SuccessCriterion(BaseModel):
+    """「무엇이 되면 끝났다고 할 수 있나」 한 줄. 검증 가능해야 한다.
+
+    key 는 sc1, sc2 ... 다. 주(weekly_goal)가 이 key 로 자기가 맡은 기준을 가리키고,
+    critic 이 그 대응을 확인한다 (LLM 미개입).
+    """
+
+    key: str
+    text: str
+
+
+class Blueprint(BaseModel):
+    """인터뷰 답에서 뽑아낸 완성 상태. 계획이 이것을 덮는지 critic 이 본다."""
+
+    summary: str = ""
+    criteria: list[SuccessCriterion] = []
+
+
+class BlueprintResult(Blueprint):
+    """blueprint 노드 출력."""
+
+
+# ─────────────────────────────────────────────────────────────
 # 초안 트리 (SPEC §2.1)
 # ─────────────────────────────────────────────────────────────
 class DraftWeeklyGoal(BaseModel):
@@ -81,6 +106,8 @@ class DraftWeeklyGoal(BaseModel):
     key: str
     week_index: int = Field(ge=1)
     title: str
+    # 이 주가 맡는 성공 기준 키. 비어 있어도 파싱은 되고, 대신 critic 이 잡는다.
+    covers: list[str] = []
 
 
 class DraftTask(BaseModel):
@@ -140,6 +167,7 @@ class LinkResult(BaseModel):
 class PlanDraft(BaseModel):
     """생성 그래프가 굴리는 계획 초안 전체."""
 
+    blueprint: Blueprint = Blueprint()
     weekly_goals: list[DraftWeeklyGoal] = []
     tasks: list[DraftTask] = []
     tickets: list[DraftTicket] = []
@@ -153,6 +181,7 @@ class PlanDraft(BaseModel):
 # ─────────────────────────────────────────────────────────────
 ViolationCode = Literal[
     "ticket_over_120min",  # R1
+    "uncovered_criterion",  # 청사진의 기준을 어느 주도 맡지 않는다
     "dependency_cycle",
     "weekly_overload",
     "orphan_node",

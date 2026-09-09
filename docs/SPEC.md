@@ -354,8 +354,12 @@ interview ──────────► [사용자 응답 대기]
   │           더 물을 게 없으면 통과. 라운드 상한은 2다.
   │  답변 원문은 projects.interview 에 남고 decompose 프롬프트로 들어간다.
   ▼
+blueprint
+  │  「무엇이 되면 끝났다고 할 수 있나」의 답을 검증 가능한 기준 3~6개로 끊는다.
+  │  인터뷰를 전부 건너뛰었으면 기준을 만들지 않는다 (지어내지 않는다).
+  ▼
 decompose
-  │  주 → 태스크 → 티켓
+  │  주 → 태스크 → 티켓. 주는 covers 로 자기가 끝내는 완성 기준을 가리킨다.
   ▼
 architect
   │  컴포넌트 노드 + 엣지 생성
@@ -369,6 +373,7 @@ critic ──── 실패 ────► decompose (최대 3회 재시도)
   │   - 의존성 순환 없음
   │   - 주간 티켓 합계 ≤ 가용시간
   │   - 고아 노드 없음 (모든 노드에 티켓 1개 이상)
+  │   - 청사진 커버리지: 모든 완성 기준을 맡는 주가 있다 (집합 연산, LLM 미개입)
   ▼
 emit
      DB 저장 + SSE 스트리밍 반환
@@ -378,6 +383,7 @@ emit
 |---|---|---|
 | `intake` | 자연어 목표 | 구조화된 제약 객체 |
 | `interview` | 제약 객체 + 지금까지의 문답 | 이번 라운드 질문 (없으면 통과) + 문답 전문 |
+| `blueprint` | 문답 전문 | 완성 기준 `[{key, text}]` + 완성된 모습 한 문장 |
 | `decompose` | 제약 객체 | 주/태스크/티켓 트리 |
 | `architect` | 제약 + 주·태스크 | 노드·엣지 그래프 |
 | `link` | 티켓 + 노드 | 매핑 테이블 |
@@ -467,6 +473,7 @@ create table projects (
   goal_text     text not null,          -- 원문 목표
   constraints   jsonb not null,         -- {duration_weeks, hours_per_week, level, stack[], team_size}
   interview     jsonb not null default '[]',  -- §3.3 문답 전문 [{round, field, question, answer}]
+  blueprint     jsonb not null default '{}',  -- §3.3 {summary, criteria:[{key, text}]}
   status        text default 'active',  -- active | paused | done | abandoned
   created_at    timestamptz default now()
 );

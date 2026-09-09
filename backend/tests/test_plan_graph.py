@@ -213,7 +213,8 @@ async def test_그래프는_SPEC_3_3_의_노드를_전부_가진다():
     graph = build_plan_graph(FakePlanner())
     nodes = set(graph.get_graph().nodes) - {"__start__", "__end__"}
     assert nodes == {
-        "intake", "interview", "decompose", "architect", "link", "critic", "repair", "emit"
+        "intake", "interview", "blueprint", "decompose",
+        "architect", "link", "critic", "repair", "emit",
     }
 
 
@@ -234,7 +235,9 @@ async def test_노드별_진행상황을_스트리밍한다(stream_mode):
     ):
         seen.extend(chunk.keys())
 
-    assert seen == ["intake", "interview", "decompose", "architect", "link", "critic", "emit"]
+    assert seen == [
+        "intake", "interview", "blueprint", "decompose", "architect", "link", "critic", "emit"
+    ]
 
 
 async def test_draft_는_단계마다_누적된다():
@@ -245,3 +248,49 @@ async def test_draft_는_단계마다_누적된다():
     assert draft.weekly_goals and draft.tasks and draft.tickets
     assert draft.nodes and draft.edges and draft.links
     assert isinstance(result["constraints"], Constraints)
+
+
+# ── 완성 청사진 (§3.3) ─────────────────────────────────────────
+async def test_인터뷰_답에서_완성_기준을_세운다():
+    planner = FakePlanner()
+    result = await run(planner)
+
+    assert "BlueprintResult" in planner.calls
+    assert [c.key for c in result["draft"].blueprint.criteria] == ["sc1", "sc2"]
+
+
+async def test_전부_건너뛰면_기준을_지어내지_않는다():
+    """없는 것도 사실이다. AI 가 완성 조건을 대신 정하지 않는다."""
+    planner = FakePlanner()
+    first = await step(planner)
+    result = await step(
+        planner,
+        interview=first["interview"],
+        clarify_answers={q.field: "" for q in first["clarify_questions"]},
+    )
+
+    assert "BlueprintResult" not in planner.calls
+    assert result["draft"].blueprint.criteria == []
+    assert result["critic"].ok  # 기준이 없으면 커버리지도 따지지 않는다
+
+
+async def test_기준을_안_맡은_계획은_다시_쪼갠다():
+    """critic 이 커버리지를 잡고 decompose 로 되돌린다 (LLM 미개입 검증)."""
+    planner = FakePlanner(
+        decompose_results=[
+            make_decompose(covers=[[], []]),           # 아무 주도 안 맡았다
+            make_decompose(covers=[["sc1"], ["sc2"]]),  # 고쳐서 다시 냄
+        ]
+    )
+    result = await run(planner)
+
+    assert decompose_calls(planner) == 2
+    assert result["critic"].ok
+
+
+async def test_기준을_끝내_못_맡으면_복구가_마지막_주로_모은다():
+    planner = FakePlanner(decompose_results=[make_decompose(covers=[[], []])])
+    result = await run(planner, max_retries=1)
+
+    assert result["critic"].ok
+    assert any("확인이 필요하다" in n for n in result["repairs"])

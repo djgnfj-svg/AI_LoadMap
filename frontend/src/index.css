@@ -118,6 +118,22 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 .transcript .q { margin: 0 0 4px; font-size: 12px; color: var(--dim); }
 .transcript .a { margin: 0; color: var(--muted); white-space: pre-wrap; }
 
+/* 완성 청사진 (§3.3) — 계획이 무엇을 향해 가는지 */
+.blueprint {
+  margin-bottom: 14px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+}
+.blueprint h5 { margin: 0 0 8px; font-size: 12px; color: var(--dim); font-weight: 600; }
+.blueprint .summary { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.blueprint ul { list-style: none; margin: 0; padding: 0; }
+.blueprint li { display: flex; gap: 8px; padding: 6px 0; }
+.blueprint li + li { border-top: 1px solid var(--border); }
+.blueprint .mark { color: var(--dim); font-size: 11px; line-height: 1.7; }
+.blueprint li.met .mark { color: var(--done); }
+.blueprint .text { margin: 0; font-size: 13px; }
+.blueprint .owner { margin: 2px 0 0; font-size: 11px; color: var(--dim); }
+.blueprint .risk { color: var(--risk); }
+
 /* ── 메인 2분할 (§5) ───────────────────────────────────────── */
 .main {
   display: grid;
