@@ -31,7 +31,7 @@ async def _create_db(db_name: str) -> str:
     dsn = _dsn_for(db_name)
     conn = await asyncpg.connect(dsn)
     for path in sorted(MIGRATIONS.glob("*.sql")):
-        await conn.execute(path.read_text())
+        await conn.execute(path.read_text(encoding="utf-8"))
     await conn.close()
     return dsn
 

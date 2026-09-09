@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 
 from app.services import alerts, detection
-from tests.helpers import seed_project
+from tests.helpers import at_utc, seed_project
 
 TODAY = date(2026, 9, 20)
 
@@ -79,7 +79,7 @@ async def test_무활동_3일이면_질문한다(conn):
         "values ($1, $2, 'completed', $3)",
         p.project_id,
         p.tickets[0],
-        TODAY - timedelta(days=4),
+        at_utc(TODAY - timedelta(days=4)),
     )
     await alerts.generate_alerts(conn, p.project_id, TODAY)
 
@@ -95,7 +95,7 @@ async def test_무활동_2일에는_묻지_않는다(conn):
         "values ($1, $2, 'completed', $3)",
         p.project_id,
         p.tickets[0],
-        TODAY - timedelta(days=2),
+        at_utc(TODAY - timedelta(days=2)),
     )
     await alerts.generate_alerts(conn, p.project_id, TODAY)
     assert not [a for a in await _alerts(conn, p.project_id) if a["rule"] == "inactive_3d"]

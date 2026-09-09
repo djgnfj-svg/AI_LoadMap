@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.services import detection
-from tests.helpers import seed_project
+from tests.helpers import at_utc, seed_project
 
 TODAY = date(2026, 9, 20)
 
@@ -121,7 +121,7 @@ async def test_14일보다_오래된_지연은_집계에서_빠진다(conn):
             "select $1, $2, node_id, 'missed', $3 from ticket_node_links where ticket_id = $2",
             p.project_id,
             ticket_id,
-            old,
+            at_utc(old),
         )
     assert await detection.node_delays(conn, p.project_id, TODAY) == []
 
@@ -156,7 +156,7 @@ async def test_무활동_일수는_사용자_행동만_센다(conn):
         "values ($1, $2, 'missed', $3)",
         p.project_id,
         p.tickets[0],
-        TODAY,
+        at_utc(TODAY),
     )
     assert await detection.days_since_activity(conn, p.project_id, TODAY) is None
 
@@ -165,6 +165,6 @@ async def test_무활동_일수는_사용자_행동만_센다(conn):
         "values ($1, $2, 'completed', $3)",
         p.project_id,
         p.tickets[0],
-        TODAY - timedelta(days=4),
+        at_utc(TODAY - timedelta(days=4)),
     )
     assert await detection.days_since_activity(conn, p.project_id, TODAY) == 4

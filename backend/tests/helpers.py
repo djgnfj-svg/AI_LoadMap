@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import asyncpg
 
@@ -17,6 +17,16 @@ from app.models.schemas import (
     DraftWeeklyGoal,
     PlanDraft,
 )
+
+def at_utc(day: date) -> datetime:
+    """timestamptz 컬럼에 넣을 그 날 자정 (UTC).
+
+    asyncpg 는 순수 date 를 '로컬' 자정으로 인코딩한다. DB 는 UTC 라
+    UTC 가 아닌 곳에서 돌리면 하루가 밀린다 — KST 에서 무활동 일수가
+    4 대신 5 로 나오던 것이 이것이다. 날짜를 넣을 때는 이걸 쓴다.
+    """
+    return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+
 
 CONSTRAINTS = Constraints(
     duration_weeks=4, hours_per_week=10, level="intermediate", stack=["fastapi"], team_size=1
