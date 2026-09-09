@@ -62,14 +62,18 @@ class ClarifyResult(BaseModel):
 class InterviewTurn(BaseModel):
     """인터뷰 문답 하나. 답변 원문이 여기 남아 decompose 프롬프트로 들어간다.
 
-    `answer` 가 빈 문자열이면 아직 답을 못 받은 질문이다 — 그 상태 그대로 DB
+    `answered` 가 false 면 아직 답을 못 받은 질문이다 — 그 상태 그대로 DB
     (`projects.interview`)에 저장되므로, 새로고침해도 이어서 답할 수 있다.
+
+    ⚠ 빈 답과 안 받은 답은 다르다. 「건너뛰겠다」도 답이라 answered=true 로 남고,
+    그래서 같은 질문을 두 번 받지 않는다.
     """
 
     round: int = Field(ge=1)
     field: str
     question: str
     answer: str = ""
+    answered: bool = False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -87,14 +91,23 @@ class SuccessCriterion(BaseModel):
 
 
 class Blueprint(BaseModel):
-    """인터뷰 답에서 뽑아낸 완성 상태. 계획이 이것을 덮는지 critic 이 본다."""
+    """완성 상태. 계획이 이것을 덮는지 critic 이 본다.
+
+    ⚠ **초안은 AI 가 쓰지만 확정은 사용자가 한다.** confirmed 가 false 인 동안에는
+    계획을 만들지 않는다. 무엇이 「끝」인지는 목표를 가진 사람만 정할 수 있고,
+    그걸 AI 가 정해버리면 그 뒤의 계획 전체가 남의 목표가 된다.
+    """
 
     summary: str = ""
     criteria: list[SuccessCriterion] = []
+    confirmed: bool = False
 
 
-class BlueprintResult(Blueprint):
-    """blueprint 노드 출력."""
+class BlueprintResult(BaseModel):
+    """blueprint 노드가 내는 **초안**. 사용자가 고치고 확정해야 계획으로 간다."""
+
+    summary: str = ""
+    criteria: list[SuccessCriterion] = []
 
 
 # ─────────────────────────────────────────────────────────────
@@ -225,6 +238,13 @@ class ProjectCreateRequest(BaseModel):
 
 class ClarifyAnswerRequest(BaseModel):
     answers: dict[str, str]
+
+
+class BlueprintConfirmRequest(BaseModel):
+    """사용자가 고쳐서 확정한 청사진. 빈 목록으로 확정하는 것도 사용자의 선택이다."""
+
+    summary: str = ""
+    criteria: list[str] = []
 
 
 class TicketPatchRequest(BaseModel):

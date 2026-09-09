@@ -54,17 +54,31 @@ async def _wait(client, project_id: str) -> None:
 
 
 async def _answer_interview(client, project_id: str, **answers: str) -> None:
-    """인터뷰가 끝날 때까지 답한다. 화면이 하는 일과 같다."""
-    for _ in range(INTERVIEW_ROUNDS + 1):
+    """인터뷰에 답하고 청사진을 확정한다. 화면이 하는 일과 같다."""
+    for _ in range(INTERVIEW_ROUNDS + 2):
         body = (await client.get(f"/projects/{project_id}")).json()
-        if body["generation"]["status"] != "awaiting_clarify":
+        status = body["generation"]["status"]
+        if status == "awaiting_clarify":
+            payload = {
+                q["field"]: answers.get(q["field"], "테스트 답변")
+                for q in body["generation"]["questions"]
+            }
+            res = await client.post(f"/projects/{project_id}/clarify", json={"answers": payload})
+        elif status == "awaiting_blueprint":
+            # 사용자가 초안을 그대로 확정한 경우.
+            draft = body["project"]["blueprint"]
+            res = await client.post(
+                f"/projects/{project_id}/blueprint",
+                json={
+                    "summary": draft.get("summary", ""),
+                    "criteria": [c["text"] for c in draft.get("criteria", [])],
+                },
+            )
+        else:
             return
-        payload = {q["field"]: answers.get(q["field"], "테스트 답변") for q in
-                   body["generation"]["questions"]}
-        res = await client.post(f"/projects/{project_id}/clarify", json={"answers": payload})
         assert res.status_code == 200, res.text
         await _wait(client, project_id)
-    raise AssertionError("인터뷰가 끝나지 않았다")
+    raise AssertionError("인터뷰·청사진이 끝나지 않았다")
 
 
 async def _create_and_wait(client, **body) -> str:
@@ -269,3 +283,74 @@ async def test_재시도가_소진되면_복구_내역이_사용자에게_보인
 async def test_없는_프로젝트는_404(client):
     res = await client.get("/projects/00000000-0000-0000-0000-000000000099")
     assert res.status_code == 404
+
+
+async def test_청사진은_사용자가_확정해야_계획이_만들어진다(client):
+    """§3.3 — 무엇이 「끝」인지는 목표를 가진 사람만 정한다."""
+    project_id = await _create(client)
+    # 인터뷰만 끝내고 청사진은 확정하지 않는다.
+    body = (await client.get(f"/projects/{project_id}")).json()
+    payload = {
+        q["field"]: "친구 4명이 30분 세션을 완주한다"
+        for q in body["generation"]["questions"]
+    }
+    await client.post(f"/projects/{project_id}/clarify", json={"answers": payload})
+    await _wait(client, project_id)
+
+    body = (await client.get(f"/projects/{project_id}")).json()
+    assert body["generation"]["status"] == "awaiting_blueprint"
+    assert body["project"]["blueprint"]["confirmed"] is False
+    assert body["tickets"] == []  # 확정 전에는 계획을 만들지 않는다
+
+
+async def test_사용자가_고쳐_쓴_기준이_계획의_기준이_된다(client):
+    """AI 초안을 지우고 직접 쓴 것이 그대로 검증 대상이 된다."""
+    project_id = await _create(client)
+    body = (await client.get(f"/projects/{project_id}")).json()
+    await client.post(
+        f"/projects/{project_id}/clarify",
+        json={"answers": {q["field"]: "답" for q in body["generation"]["questions"]}},
+    )
+    await _wait(client, project_id)
+
+    res = await client.post(
+        f"/projects/{project_id}/blueprint",
+        json={
+            "summary": "내가 쓴 완성 모습",
+            "criteria": ["친구 4명이 30분을 완주한다", "  ", "스팀에 빌드가 올라간다"],
+        },
+    )
+    assert res.status_code == 200
+    await _wait(client, project_id)
+
+    body = (await client.get(f"/projects/{project_id}")).json()
+    bp = body["project"]["blueprint"]
+    assert bp["confirmed"] is True
+    assert bp["summary"] == "내가 쓴 완성 모습"
+    # 빈 줄은 버리고 key 를 다시 매긴다 — 지운 뒤에도 sc1..scN 이 이어져야 한다.
+    assert [(c["key"], c["text"]) for c in bp["criteria"]] == [
+        ("sc1", "친구 4명이 30분을 완주한다"),
+        ("sc2", "스팀에 빌드가 올라간다"),
+    ]
+    covered = {k for g in body["weekly_goals"] for k in g["covers"]}
+    assert covered == {"sc1", "sc2"}  # 사용자가 쓴 기준을 주가 맡는다
+
+
+async def test_청사진_확정_도중_새로고침해도_이어진다(client):
+    project_id = await _create(client)
+    body = (await client.get(f"/projects/{project_id}")).json()
+    await client.post(
+        f"/projects/{project_id}/clarify",
+        json={"answers": {q["field"]: "답" for q in body["generation"]["questions"]}},
+    )
+    await _wait(client, project_id)
+    client.app.state.runner = PlanRunner(FakePlanner())  # 서버 재시작과 같은 상태
+
+    body = (await client.get(f"/projects/{project_id}")).json()
+    assert body["generation"]["status"] == "awaiting_blueprint"
+    assert body["project"]["blueprint"]["criteria"]  # 초안이 DB 에 남아 있다
+
+    await _answer_interview(client, project_id)
+    body = (await client.get(f"/projects/{project_id}")).json()
+    assert body["generation"]["status"] == "done"
+    assert len(body["tickets"]) == 4

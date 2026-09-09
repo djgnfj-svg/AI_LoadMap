@@ -3,6 +3,7 @@
 from typing import Annotated, TypedDict
 
 from app.models.schemas import (
+    Blueprint,
     ClarifyQuestion,
     Constraints,
     CriticResult,
@@ -21,6 +22,7 @@ class PlanState(TypedDict, total=False):
     known: dict          # 사용자가 미리 준 제약 (없으면 intake 가 추론)
     clarify_answers: dict[str, str]   # 이번 실행에서 새로 받은 답
     interview: list[InterviewTurn]    # 지금까지의 문답 전문 (DB 에서 실려 온다)
+    blueprint: Blueprint | None       # 청사진 (초안이면 confirmed=False)
 
     # intake / interview
     title: str
@@ -28,6 +30,7 @@ class PlanState(TypedDict, total=False):
     missing: list[str]
     clarify_questions: list[ClarifyQuestion]  # 이번에 물을 질문
     awaiting_clarify: bool
+    awaiting_blueprint: bool          # 청사진 확정을 기다리는 중
 
     # decompose / architect / link
     draft: PlanDraft

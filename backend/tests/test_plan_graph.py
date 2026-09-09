@@ -17,6 +17,19 @@ async def step(planner: FakePlanner, max_retries: int = 3, **state) -> dict:
     return await graph.ainvoke({**BASE, **state})
 
 
+async def confirm(planner: FakePlanner, result: dict, max_retries: int = 3, **state) -> dict:
+    """사용자가 청사진 초안을 그대로 확정한 뒤 이어서 돈다."""
+    return await step(
+        planner,
+        max_retries,
+        **{
+            **state,
+            "interview": result["interview"],
+            "blueprint": result["blueprint"].model_copy(update={"confirmed": True}),
+        },
+    )
+
+
 async def run(planner: FakePlanner, max_retries: int = 3, **state) -> dict:
     """인터뷰에 답해가며 끝까지 돌린다. API 가 하는 일과 같다."""
     graph = build_plan_graph(planner, max_retries=max_retries)
@@ -127,9 +140,8 @@ async def test_답변_원문이_decompose_프롬프트에_들어간다():
     first = await step(planner)
     answers = {q.field: "" for q in first["clarify_questions"]}
     answers["blueprint"] = "친구 4명이 30분 세션을 끊김 없이 도는 전용 서버 코옵 게임"
-    result = await step(
-        planner, interview=first["interview"], clarify_answers=answers
-    )
+    answered = await step(planner, interview=first["interview"], clarify_answers=answers)
+    result = await confirm(planner, answered)
 
     assert not result.get("awaiting_clarify")
     assert len(seen) == 1
@@ -137,13 +149,15 @@ async def test_답변_원문이_decompose_프롬프트에_들어간다():
 
 
 async def test_답에서_읽은_기간은_제약이_된다():
-    planner = FakePlanner()
+    # 가용시간은 intake 가 추측했다고 보고 1라운드에서 같이 묻게 한다.
+    planner = FakePlanner(missing=["hours_per_week"])
     first = await step(planner)
-    result = await step(
+    answered = await step(
         planner,
         interview=first["interview"],
         clarify_answers={"deadline": "3개월 안에", "hours_per_week": "주 20시간이요"},
     )
+    result = await confirm(planner, answered)
 
     assert result["constraints"].duration_weeks == 13  # 3개월 = 13주
     assert result["constraints"].hours_per_week == 20
@@ -179,11 +193,12 @@ async def test_전부_건너뛰어도_계획은_나온다():
     """빈 답도 답이다. 같은 질문을 영원히 다시 받지 않는다."""
     planner = FakePlanner()
     first = await step(planner)
-    result = await step(
+    answered = await step(
         planner,
         interview=first["interview"],
         clarify_answers={q.field: "" for q in first["clarify_questions"]},
     )
+    result = await confirm(planner, answered)
 
     assert not result.get("awaiting_clarify")
     assert result["critic"].ok
@@ -223,13 +238,19 @@ async def test_노드별_진행상황을_스트리밍한다(stream_mode):
     """SPEC §5 — SSE 로 단계별 표시."""
     planner = FakePlanner()
     graph = build_plan_graph(planner, max_retries=3)
-    first = await step(planner)  # 인터뷰를 먼저 끝낸다
+    # 인터뷰와 청사진 확정을 먼저 끝낸다 — 그 뒤 한 번에 계획까지 간다.
+    first = await step(planner)
+    answered = await step(
+        planner,
+        interview=first["interview"],
+        clarify_answers={q.field: "답" for q in first["clarify_questions"]},
+    )
     seen = []
     async for chunk in graph.astream(
         {
             **BASE,
-            "interview": first["interview"],
-            "clarify_answers": {q.field: "답" for q in first["clarify_questions"]},
+            "interview": answered["interview"],
+            "blueprint": answered["blueprint"].model_copy(update={"confirmed": True}),
         },
         stream_mode=stream_mode,
     ):
@@ -263,11 +284,12 @@ async def test_전부_건너뛰면_기준을_지어내지_않는다():
     """없는 것도 사실이다. AI 가 완성 조건을 대신 정하지 않는다."""
     planner = FakePlanner()
     first = await step(planner)
-    result = await step(
+    answered = await step(
         planner,
         interview=first["interview"],
         clarify_answers={q.field: "" for q in first["clarify_questions"]},
     )
+    result = await confirm(planner, answered)
 
     assert "BlueprintResult" not in planner.calls
     assert result["draft"].blueprint.criteria == []

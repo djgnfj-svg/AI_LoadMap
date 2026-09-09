@@ -9,7 +9,14 @@ from sse_starlette.sse import EventSourceResponse
 from app import auth, db
 from app.graphs import interview as interview_rules
 from app.graphs.persist import create_project
-from app.models.schemas import ClarifyAnswerRequest, InterviewTurn, ProjectCreateRequest
+from app.models.schemas import (
+    Blueprint,
+    BlueprintConfirmRequest,
+    ClarifyAnswerRequest,
+    InterviewTurn,
+    ProjectCreateRequest,
+    SuccessCriterion,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -126,6 +133,55 @@ async def clarify(
     return {"project_id": str(project_id), "status": "running"}
 
 
+@router.post("/{project_id}/blueprint")
+async def confirm_blueprint(
+    project_id: uuid.UUID,
+    req: BlueprintConfirmRequest,
+    request: Request,
+    user=Depends(auth.current_user),  # noqa: ANN001
+) -> dict:
+    """완성 기준을 **사용자가** 확정한다 (SPEC §3.3).
+
+    AI 가 쓴 초안을 그대로 받아도 되고, 고쳐 써도 되고, 지워도 되고, 새로 넣어도
+    된다. 확정하기 전에는 계획을 만들지 않는다 — 무엇이 「끝」인지는 목표를 가진
+    사람만 정할 수 있기 때문이다.
+
+    key 는 여기서 다시 매긴다. 사용자가 순서를 바꾸거나 지운 뒤에도 sc1..scN 이
+    빈틈없이 이어져야 주(covers)와의 대응이 읽힌다.
+    """
+    criteria = [
+        SuccessCriterion(key=f"sc{i}", text=text.strip())
+        for i, text in enumerate((t for t in req.criteria if t.strip()), start=1)
+    ]
+    blueprint = Blueprint(summary=req.summary.strip(), criteria=criteria, confirmed=True)
+
+    async with db.transaction() as conn:
+        await auth.assert_owns_project(conn, project_id, user)
+        project = await conn.fetchrow(
+            "select goal_text, constraints, interview from projects where id = $1", project_id
+        )
+        ticket_count = await conn.fetchval(
+            "select count(*) from tickets where project_id = $1", project_id
+        )
+        if ticket_count:
+            raise HTTPException(409, "이미 계획이 만들어진 프로젝트다.")
+        # 확정 사실을 먼저 남긴다. 이 뒤 그래프가 실패해도 사용자가 쓴 것은 남는다.
+        await conn.execute(
+            "update projects set blueprint = $2 where id = $1", project_id, blueprint.model_dump()
+        )
+
+    runner = request.app.state.runner
+    run = runner.get(project_id)
+    runner.start(
+        project_id,
+        run.goal_text if run else project["goal_text"],
+        run.known if run else _known_from(project["constraints"]),
+        interview=run.interview if run else _interview(project),
+        blueprint=blueprint,
+    )
+    return {"project_id": str(project_id), "status": "running"}
+
+
 def _interview(project) -> list[InterviewTurn]:  # noqa: ANN001
     return [InterviewTurn(**t) for t in (project["interview"] or [])]
 
@@ -135,8 +191,10 @@ def _known_from(constraints) -> dict:  # noqa: ANN001
     return {k: v for k, v in (constraints or {}).items() if v is not None}
 
 
-def _generation(run, turns: list[InterviewTurn], *, has_plan: bool) -> dict:  # noqa: ANN001
-    """생성 진행 상태. 메모리에 실행이 없으면 DB 의 인터뷰가 답한다.
+def _generation(  # noqa: ANN001
+    run, turns: list[InterviewTurn], blueprint: Blueprint, *, has_plan: bool
+) -> dict:
+    """생성 진행 상태. 메모리에 실행이 없으면 DB 의 인터뷰·청사진이 답한다.
 
     전에는 실행이 없으면 무조건 "done" 이었다. 그래서 인터뷰 도중 새로고침하면
     티켓 0개짜리 프로젝트가 「완성됨」으로 보이고 되살릴 방법이 없었다.
@@ -148,14 +206,18 @@ def _generation(run, turns: list[InterviewTurn], *, has_plan: bool) -> dict:  # 
             "repairs": run.repairs,
             "error": run.error,
         }
-    waiting = interview_rules.pending(turns)
-    if waiting and not has_plan:
-        return {
-            "status": "awaiting_clarify",
-            "questions": [q.model_dump() for q in waiting],
-            "repairs": [],
-            "error": None,
-        }
+    if not has_plan:
+        waiting = interview_rules.pending(turns)
+        if waiting:
+            return {
+                "status": "awaiting_clarify",
+                "questions": [q.model_dump() for q in waiting],
+                "repairs": [],
+                "error": None,
+            }
+        # 인터뷰는 끝났는데 청사진을 아직 확정하지 않았다.
+        if turns and not blueprint.confirmed:
+            return {"status": "awaiting_blueprint", "questions": [], "repairs": [], "error": None}
     return {"status": "done", "questions": [], "repairs": [], "error": None}
 
 
@@ -219,7 +281,9 @@ async def get_project(
     turns = _interview(project)
     return {
         "project": _row(project),
-        "generation": _generation(run, turns, has_plan=bool(tickets)),
+        "generation": _generation(
+            run, turns, Blueprint(**(project["blueprint"] or {})), has_plan=bool(tickets)
+        ),
         # 인터뷰 전문. 사용자가 자기 계획의 근거를 되짚을 수 있어야 한다.
         "interview": [t.model_dump() for t in turns],
         "weekly_goals": [_row(r) for r in goals],

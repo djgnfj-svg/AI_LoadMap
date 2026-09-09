@@ -25,7 +25,7 @@ scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
   src/screens/Login.tsx        구글 로그인 (또는 데모 계정)
   src/screens/ProjectList.tsx  내 로드맵 목록
-  src/screens/GoalInput.tsx    목표 입력 → 인터뷰(청사진부터) → SSE 진행
+  src/screens/GoalInput.tsx    목표 입력 → 인터뷰 → 완성 기준 확정 → SSE 진행
   src/screens/Main.tsx         2분할 + 양방향 하이라이트 + 완성 청사진 패널
   src/screens/ReviewSession.tsx 재점검 세션 (집계 → 진단 → diff → 승인)
   src/components/ArchNode.tsx  §2.5 노드 상태 4종 렌더
@@ -77,7 +77,8 @@ backend/
 | R3 재설계는 주 1개 | `replan_scope` 가 지연이 가장 많은 주 하나만 고른다 |
 | R4 `missed`는 이벤트 | `defer` 는 `delay_count` 만 올리고 `status` 는 유지. 같은 마감일에 두 번 기록하지 않는다 |
 | R5 알람은 진단 | "netcode 쪽에서 3번 멈췄어요. 다시 짤까요?" — 문구가 기능이다 |
-| 청사진 커버리지 | 사용자가 말한 완성 기준을 어느 주도 안 맡으면 `critic.py` 가 다시 쪼개게 한다 (집합 연산, LLM 미개입) |
+| 청사진은 사용자 것 | 완성 기준 초안은 AI 가 쓰지만 `confirmed` 가 되기 전에는 계획을 만들지 않는다 (`plan_graph.py` blueprint 노드) |
+| 청사진 커버리지 | 사용자가 확정한 완성 기준을 어느 주도 안 맡으면 `critic.py` 가 다시 쪼개게 한다 (집합 연산, LLM 미개입) |
 | 티켓 본문 | 완료 조건 2개 이상 + 확인 가능한 서술을 `critic.py` 가 검사한다. 못 채우면 `repair.py` 가 `(확인 필요)` 로 채우고 밝힌다 |
 
 ## 시작하기
@@ -150,7 +151,7 @@ cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 154개
+.venv/bin/python -m pytest -q          # 157개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend
@@ -199,6 +200,7 @@ TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 | POST | `/projects` | 목표 입력 → 생성 그래프 시작 |
 | GET | `/projects/{id}/stream` | SSE, 그래프 진행 상황 |
 | POST | `/projects/{id}/clarify` | 인터뷰 답변 제출 (새로고침·재시작 뒤에도 이어진다) |
+| POST | `/projects/{id}/blueprint` | 완성 기준 확정 — AI 는 초안만 쓰고 확정은 사용자가 한다 |
 | GET | `/projects/{id}` | 로드맵 + 아키텍처 + 노드 상태 |
 | PATCH | `/tickets/{id}` | `start` / `complete` / `block` / `unblock` / `defer` |
 | POST | `/tickets/{id}/block` | 막힘 사유 한 줄 입력 |

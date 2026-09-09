@@ -20,23 +20,28 @@ from app.models.schemas import (
 )
 
 async def drive_plan_graph(graph, base: dict, *, rounds: int = 3) -> dict:
-    """인터뷰에 답해가며 생성 그래프를 끝까지 돌린다.
+    """인터뷰에 답하고 청사진을 확정해가며 생성 그래프를 끝까지 돌린다.
 
-    그래프는 인터뷰 라운드마다 종료되고 API 가 답을 얹어 다시 부른다 (SPEC §3.3).
-    테스트에서 계획까지 가려면 그 왕복을 그대로 흉내내야 한다.
+    그래프는 사용자를 기다리는 자리마다 종료되고 API 가 답을 얹어 다시 부른다
+    (SPEC §3.3). 테스트에서 계획까지 가려면 그 왕복을 그대로 흉내내야 한다.
     """
     result = await graph.ainvoke(base)
-    for _ in range(rounds):
-        if not result.get("awaiting_clarify"):
-            return result
-        result = await graph.ainvoke(
-            {
+    for _ in range(rounds + 2):
+        if result.get("awaiting_clarify"):
+            state = {
                 **base,
                 "interview": result["interview"],
+                "blueprint": result.get("blueprint"),
                 "clarify_answers": {q.field: "테스트 답변" for q in result["clarify_questions"]},
             }
-        )
-    raise AssertionError("인터뷰가 라운드 상한 안에 끝나지 않았다")
+        elif result.get("awaiting_blueprint"):
+            # 사용자가 초안을 그대로 확정한 경우.
+            confirmed = result["blueprint"].model_copy(update={"confirmed": True})
+            state = {**base, "interview": result["interview"], "blueprint": confirmed}
+        else:
+            return result
+        result = await graph.ainvoke(state)
+    raise AssertionError("인터뷰·청사진이 상한 안에 끝나지 않았다")
 
 
 def at_utc(day: date) -> datetime:

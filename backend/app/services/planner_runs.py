@@ -19,16 +19,23 @@ from app import db
 from app.graphs.llm import Planner
 from app.graphs.persist import persist_plan
 from app.graphs.plan_graph import build_plan_graph
-from app.models.schemas import ClarifyQuestion, Constraints, InterviewTurn, PlanDraft
+from app.models.schemas import (
+    Blueprint,
+    ClarifyQuestion,
+    Constraints,
+    InterviewTurn,
+    PlanDraft,
+)
 
 log = logging.getLogger(__name__)
 
-RunStatus = Literal["running", "awaiting_clarify", "done", "failed"]
+RunStatus = Literal["running", "awaiting_clarify", "awaiting_blueprint", "done", "failed"]
 
 # 그래프 노드 -> 사용자에게 보여줄 한 줄 (SPEC §5 "SSE로 단계별 표시")
 NODE_LABELS = {
     "intake": "목표에서 제약을 읽는 중",
     "interview": "답한 내용을 읽는 중",
+    "blueprint": "완성 기준 초안을 쓰는 중",
     "decompose": "주 · 태스크 · 티켓으로 쪼개는 중",
     "architect": "아키텍처를 그리는 중",
     "link": "티켓과 컴포넌트를 잇는 중",
@@ -46,6 +53,7 @@ class PlanRun:
     status: RunStatus = "running"
     questions: list[ClarifyQuestion] = field(default_factory=list)
     interview: list[InterviewTurn] = field(default_factory=list)
+    blueprint: Blueprint | None = None
     repairs: list[str] = field(default_factory=list)
     error: str | None = None
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
@@ -67,12 +75,14 @@ class PlanRunner:
         known: dict[str, Any],
         clarify_answers: dict[str, str] | None = None,
         interview: list[InterviewTurn] | None = None,
+        blueprint: Blueprint | None = None,
     ) -> PlanRun:
         run = PlanRun(
             project_id=project_id,
             goal_text=goal_text,
             known=known,
             interview=list(interview or []),
+            blueprint=blueprint,
         )
         self._runs[project_id] = run
         run.task = asyncio.create_task(self._execute(run, clarify_answers or {}))
@@ -84,6 +94,7 @@ class PlanRunner:
             "known": run.known,
             "clarify_answers": clarify_answers,
             "interview": run.interview,
+            "blueprint": run.blueprint,
             "attempt": 0,
         }
         final: dict[str, Any] = dict(state)
@@ -94,7 +105,18 @@ class PlanRunner:
                     await run.queue.put(self._node_event(node, update))
 
             run.interview = final.get("interview") or run.interview
+            run.blueprint = final.get("blueprint") or run.blueprint
             await self._save_interview(run)
+
+            if final.get("awaiting_blueprint"):
+                run.status = "awaiting_blueprint"
+                await run.queue.put(
+                    {
+                        "event": "blueprint",
+                        "blueprint": (run.blueprint or Blueprint()).model_dump(),
+                    }
+                )
+                return
 
             if final.get("awaiting_clarify"):
                 run.questions = final.get("clarify_questions") or []
@@ -150,12 +172,17 @@ class PlanRunner:
         return event
 
     async def _save_interview(self, run: PlanRun) -> None:
-        """문답을 DB 에 남긴다. 사용자가 쓴 글이라 프로세스와 함께 사라지면 안 된다."""
+        """문답과 청사진을 DB 에 남긴다.
+
+        사용자가 쓴 글이고, 확정 여부도 사용자의 결정이라 프로세스와 함께
+        사라지면 안 된다.
+        """
         async with db.transaction() as conn:
             await conn.execute(
-                "update projects set interview = $2 where id = $1",
+                "update projects set interview = $2, blueprint = $3 where id = $1",
                 run.project_id,
                 [t.model_dump() for t in run.interview],
+                (run.blueprint or Blueprint()).model_dump(),
             )
 
     async def _persist(self, run: PlanRun, final: dict[str, Any]) -> None:

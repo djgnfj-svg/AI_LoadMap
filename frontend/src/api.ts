@@ -21,8 +21,8 @@ export interface Project {
   };
   status: string;
   start_date: string;
-  /** §3.3 인터뷰에서 뽑은 완성 청사진. 인터뷰를 건너뛰면 criteria 가 빈 배열이다. */
-  blueprint: { summary?: string; criteria?: SuccessCriterion[] };
+  /** §3.3 완성 청사진. 초안은 AI 가 쓰고 **확정은 사용자가 한다**. */
+  blueprint: { summary?: string; criteria?: SuccessCriterion[]; confirmed?: boolean };
 }
 
 /** 「무엇이 되면 끝났다고 할 수 있나」 한 줄. 주(weekly_goal)가 covers 로 가리킨다. */
@@ -109,7 +109,7 @@ export interface ProjectView {
   project: Project;
   interview: InterviewTurn[];
   generation: {
-    status: "running" | "awaiting_clarify" | "done" | "failed";
+    status: "running" | "awaiting_clarify" | "awaiting_blueprint" | "done" | "failed";
     questions: ClarifyQuestion[];
     repairs: string[];
     error: string | null;
@@ -208,6 +208,13 @@ export const api = {
       body: JSON.stringify({ answers }),
     }),
 
+  /** 완성 기준을 사용자가 확정한다 (§3.3). 고쳐 쓴 것이 그대로 검증 대상이 된다. */
+  confirmBlueprint: (id: string, summary: string, criteria: string[]) =>
+    request<{ project_id: string; status: string }>(`/projects/${id}/blueprint`, {
+      method: "POST",
+      body: JSON.stringify({ summary, criteria }),
+    }),
+
   patchTicket: (
     id: string,
     action: "start" | "complete" | "block" | "unblock" | "defer",
@@ -234,6 +241,7 @@ export function streamGeneration(
   handlers: {
     onStep: (e: StepEvent) => void;
     onClarify: (questions: ClarifyQuestion[]) => void;
+    onBlueprint: (draft: { summary?: string; criteria?: SuccessCriterion[] }) => void;
     onDone: (repairs: string[]) => void;
     onError: (message: string) => void;
   },
@@ -244,6 +252,10 @@ export function streamGeneration(
   source.addEventListener("step", (e) => handlers.onStep(JSON.parse((e as MessageEvent).data)));
   source.addEventListener("clarify", (e) => {
     handlers.onClarify(JSON.parse((e as MessageEvent).data).questions);
+    close();
+  });
+  source.addEventListener("blueprint", (e) => {
+    handlers.onBlueprint(JSON.parse((e as MessageEvent).data).blueprint ?? {});
     close();
   });
   source.addEventListener("done", (e) => {

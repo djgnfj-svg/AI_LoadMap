@@ -7,14 +7,17 @@ intake -> interview -> blueprint -> decompose -> architect -> link -> critic -> 
 critic 이 이 그래프의 존재 이유다. 검증 없이 한 번 호출하고 끝나면 LLM 래퍼와 다르지 않다.
 재시도가 소진되면 결정적 복구(app/graphs/repair.py)를 거쳐 emit 으로 간다.
 
-interview 의 "[사용자 응답 대기]"는 그래프를 여러 번 실행해 처리한다.
+[사용자 대기]가 두 군데다 — 인터뷰 답변과 청사진 확정. 둘 다 그래프를 여러 번
+실행해 처리한다.
 1회차: intake -> interview -> 1라운드 질문(고정)을 들고 종료.
 2회차: 같은 입력 + interview(지금까지 문답) + clarify_answers 로 재실행.
        답을 채우고, 아직 모르는 게 있으면 2라운드 질문을 들고 다시 종료.
-3회차: 라운드 상한에 닿으면 통과해 decompose 로 간다.
+3회차: 라운드 상한에 닿으면 인터뷰를 통과하고, blueprint 가 완성 기준 초안을
+       들고 다시 멈춘다. 사용자가 고쳐서 확정하면 그때 decompose 로 간다.
 
-체크포인터가 필요 없다 — 이어가는 데 필요한 것이 전부 `interview`(문답 전문) 하나이고,
-그것은 DB(`projects.interview`)에 있다. 프로세스가 죽어도 인터뷰가 이어진다.
+체크포인터가 필요 없다 — 이어가는 데 필요한 것이 `interview`(문답 전문)와
+`blueprint`(확정한 완성 기준)뿐이고, 둘 다 DB(`projects`)에 있다.
+프로세스가 죽어도 인터뷰와 청사진이 이어진다.
 """
 
 from langgraph.graph import END, START, StateGraph
@@ -76,7 +79,11 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
         answers = state.get("clarify_answers") or {}
 
         turns = interview_rules.record_answers(turns, answers)
-        constraints = interview_rules.apply_answers(state["constraints"], answers)
+        # 이번에 온 답만 보지 않는다. 그래프는 청사진 확정 때 한 번 더 도는데,
+        # 그때 새 답이 없다고 「3개월」을 잊으면 제약이 원래 추론값으로 돌아간다.
+        constraints = interview_rules.apply_answers(
+            state["constraints"], {t.field: t.answer for t in turns if t.answer}
+        )
         round_no = interview_rules.current_round(turns)
 
         def wait(questions: list, next_turns: list[InterviewTurn]) -> dict:
@@ -103,10 +110,10 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
             ]
             return wait(questions, turns)
 
-        # 이번 라운드 답이 아직 안 들어왔다 — 같은 질문을 그대로 들고 기다린다.
+        # 아직 답이 안 온 질문이 있다 — 같은 질문을 그대로 들고 기다린다.
         # (새로고침 뒤 재실행되는 경우다. 질문을 다시 만들지 않는다.)
-        if not interview_rules.answered_current_round(turns, answers):
-            return wait(interview_rules.pending(turns), turns)
+        if waiting := interview_rules.pending(turns):
+            return wait(waiting, turns)
 
         if round_no >= interview_rules.MAX_ROUNDS:
             return proceed(turns)
@@ -138,28 +145,54 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
 
     # ── blueprint ─────────────────────────────────────────────
     async def blueprint(state: PlanState) -> dict:
-        """인터뷰 답에서 「완성」을 검증 가능한 기준으로 끊는다.
+        """완성 기준의 **초안**을 쓰고, 사용자가 확정할 때까지 멈춘다.
 
-        여기까지가 AI 다. 계획이 이 기준을 덮는지 확인하는 것은 critic 이 하고,
-        거기엔 LLM 이 없다 (R2).
+        무엇이 「끝」인지는 목표를 가진 사람만 정할 수 있다. AI 가 정해버리면
+        그 뒤의 계획 전체가 남의 목표가 된다. 그래서 여기서 한 번 더 멈춘다 —
+        인터뷰와 같은 방식(그래프를 두 번 실행)이고, 확정본은 DB 에 있다.
         """
-        turns: list[InterviewTurn] = state.get("interview") or []
-        if not any(t.answer.strip() for t in turns):
-            # 전부 건너뛴 인터뷰. 기준을 지어내지 않는다 — 없는 것도 사실이다.
-            return {"draft": (state.get("draft") or PlanDraft())}
+        stored: Blueprint | None = state.get("blueprint")
+        draft = state.get("draft") or PlanDraft()
 
-        result: BlueprintResult = await planner.structured(
-            system=prompts.SYSTEM,
-            prompt=prompts.BLUEPRINT.format(
-                goal_text=state["goal_text"],
-                transcript=prompts.format_transcript(turns),
-            ),
-            output_model=BlueprintResult,
-        )
-        draft = (state.get("draft") or PlanDraft()).model_copy(
-            update={"blueprint": Blueprint(summary=result.summary, criteria=result.criteria)}
-        )
-        return {"draft": draft}
+        # 사용자가 확정했다. 그대로 들고 간다 (AI 가 다시 손대지 않는다).
+        if stored is not None and stored.confirmed:
+            return {
+                "draft": draft.model_copy(update={"blueprint": stored}),
+                "awaiting_blueprint": False,
+            }
+
+        # 초안이 이미 있는데 아직 확정 전이면 다시 쓰지 않는다 (새로고침 뒤 재실행).
+        if stored is not None and (stored.criteria or stored.summary):
+            return {
+                "draft": draft.model_copy(update={"blueprint": stored}),
+                "blueprint": stored,
+                "awaiting_blueprint": True,
+            }
+
+        turns: list[InterviewTurn] = state.get("interview") or []
+        if any(t.answer.strip() for t in turns):
+            result: BlueprintResult = await planner.structured(
+                system=prompts.SYSTEM,
+                prompt=prompts.BLUEPRINT.format(
+                    goal_text=state["goal_text"],
+                    transcript=prompts.format_transcript(turns),
+                ),
+                output_model=BlueprintResult,
+            )
+            proposed = Blueprint(summary=result.summary, criteria=result.criteria)
+        else:
+            # 인터뷰를 전부 건너뛴 경우. 지어내지 않고 빈 초안을 내민다 —
+            # 그래도 확정은 사용자가 한다.
+            proposed = Blueprint()
+
+        return {
+            "draft": draft.model_copy(update={"blueprint": proposed}),
+            "blueprint": proposed,
+            "awaiting_blueprint": True,
+        }
+
+    def after_blueprint(state: PlanState) -> str:
+        return "wait" if state.get("awaiting_blueprint") else "decompose"
 
     # ── decompose ─────────────────────────────────────────────
     async def decompose(state: PlanState) -> dict:
@@ -270,7 +303,9 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
     graph.add_conditional_edges(
         "interview", after_interview, {"wait": END, "decompose": "blueprint"}
     )
-    graph.add_edge("blueprint", "decompose")
+    graph.add_conditional_edges(
+        "blueprint", after_blueprint, {"wait": END, "decompose": "decompose"}
+    )
     graph.add_edge("decompose", "architect")
     graph.add_edge("architect", "link")
     graph.add_edge("link", "critic")

@@ -69,7 +69,7 @@ def first_round(missing: list[str], constraints: Constraints) -> list[ClarifyQue
 def pending(turns: list[InterviewTurn]) -> list[ClarifyQuestion]:
     """아직 답을 못 받은 질문. 새로고침 뒤 인터뷰를 이어서 그릴 때 쓴다."""
     return [
-        ClarifyQuestion(field=t.field, question=t.question) for t in turns if not t.answer.strip()
+        ClarifyQuestion(field=t.field, question=t.question) for t in turns if not t.answered
     ]
 
 
@@ -79,22 +79,20 @@ def current_round(turns: list[InterviewTurn]) -> int:
 
 
 def record_answers(turns: list[InterviewTurn], answers: dict[str, str]) -> list[InterviewTurn]:
-    """받은 답을 해당 질문에 채운다. 빈 답은 「건너뜀」이고, 그것도 사실이라 남긴다."""
-    filled = [t.model_copy() for t in turns]
-    for turn in filled:
-        if turn.field in answers and not turn.answer.strip():
-            turn.answer = (answers[turn.field] or "").strip()
-    return filled
+    """받은 답을 채운다. 빈 답은 「건너뜀」이고, 그것도 답이라 answered 로 남긴다.
 
-
-def answered_current_round(turns: list[InterviewTurn], answers: dict[str, str]) -> bool:
-    """이번 라운드 질문 중 하나라도 답이 들어왔는가.
-
-    빈 문자열로 온 답도 「건너뛰겠다」는 답이다. 값이 아니라 키가 왔는지로 센다.
-    값으로 세면 전부 건너뛴 사용자가 같은 질문을 영원히 다시 받는다.
+    답이 하나라도 온 라운드는 **통째로** 지나간 것으로 본다. 화면은 한 라운드를
+    한 번에 제출하고, 비워 보낸 칸은 건너뛰겠다는 뜻이기 때문이다. 그렇게 하지
+    않으면 전부 건너뛴 사용자가 같은 질문을 영원히 다시 받는다.
     """
-    round_no = current_round(turns)
-    return any(t.field in answers for t in turns if t.round == round_no)
+    filled = [t.model_copy() for t in turns]
+    touched = {t.round for t in filled if t.field in answers}
+    for turn in filled:
+        if turn.field in answers and not turn.answered:
+            turn.answer = (answers[turn.field] or "").strip()
+        if turn.round in touched:
+            turn.answered = True
+    return filled
 
 
 def apply_answers(

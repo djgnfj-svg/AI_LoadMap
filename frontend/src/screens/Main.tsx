@@ -105,6 +105,16 @@ export function Main({ projectId, onBack, onOpenReview, onResumeInterview }: Pro
       </div>
     );
   }
+  if (generation.status === "awaiting_blueprint") {
+    return (
+      <div className="empty">
+        <p>완성 기준을 확정하면 계획을 만듭니다.</p>
+        <button className="primary" onClick={onResumeInterview}>
+          완성 기준 확정하기
+        </button>
+      </div>
+    );
+  }
 
   const doneCount = view.tickets.filter((t) => t.status === "resolved").length;
   const atRisk = view.arch_nodes.filter((n) => n.computed_status === "at_risk");

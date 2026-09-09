@@ -354,9 +354,12 @@ interview ──────────► [사용자 응답 대기]
   │           더 물을 게 없으면 통과. 라운드 상한은 2다.
   │  답변 원문은 projects.interview 에 남고 decompose 프롬프트로 들어간다.
   ▼
-blueprint
+blueprint ──────────► [사용자 확정 대기]
   │  「무엇이 되면 끝났다고 할 수 있나」의 답을 검증 가능한 기준 3~6개로 끊는다.
-  │  인터뷰를 전부 건너뛰었으면 기준을 만들지 않는다 (지어내지 않는다).
+  │  ⚠ AI 는 **초안만** 쓴다. 고치고 지우고 더하고 확정하는 것은 사용자다.
+  │     확정 전에는 계획을 만들지 않는다. 무엇이 「끝」인지는 목표를 가진 사람만
+  │     정할 수 있고, AI 가 정하면 그 뒤의 계획 전체가 남의 목표가 된다.
+  │  인터뷰를 전부 건너뛰었으면 빈 초안을 내민다 (기준을 지어내지 않는다).
   ▼
 decompose
   │  주 → 태스크 → 티켓. 주는 covers 로 자기가 끝내는 완성 기준을 가리킨다.
@@ -384,7 +387,7 @@ emit
 |---|---|---|
 | `intake` | 자연어 목표 | 구조화된 제약 객체 |
 | `interview` | 제약 객체 + 지금까지의 문답 | 이번 라운드 질문 (없으면 통과) + 문답 전문 |
-| `blueprint` | 문답 전문 | 완성 기준 `[{key, text}]` + 완성된 모습 한 문장 |
+| `blueprint` | 문답 전문 | 완성 기준 **초안** `[{key, text}]` + 완성된 모습 한 문장. 사용자가 확정해야 통과 |
 | `decompose` | 제약 객체 | 주/태스크/티켓 트리 |
 | `architect` | 제약 + 주·태스크 | 노드·엣지 그래프 |
 | `link` | 티켓 + 노드 | 매핑 테이블 |
@@ -423,6 +426,7 @@ diff
 | POST | `/projects` | 목표 입력 → 생성 그래프 시작 |
 | GET | `/projects/{id}/stream` | SSE, 그래프 진행 상황 스트리밍 |
 | POST | `/projects/{id}/clarify` | 인터뷰 답변 제출 (메모리에 실행이 없어도 받는다) |
+| POST | `/projects/{id}/blueprint` | 완성 기준 확정 (사용자가 고쳐 쓴 것이 기준이 된다) |
 | GET | `/projects/{id}` | 로드맵 + 아키텍처 전체 조회 |
 | PATCH | `/tickets/{id}` | 상태 변경 (완료/연기/차단) |
 | POST | `/tickets/{id}/block` | 막힘 사유 입력 |
@@ -474,7 +478,7 @@ create table projects (
   goal_text     text not null,          -- 원문 목표
   constraints   jsonb not null,         -- {duration_weeks, hours_per_week, level, stack[], team_size}
   interview     jsonb not null default '[]',  -- §3.3 문답 전문 [{round, field, question, answer}]
-  blueprint     jsonb not null default '{}',  -- §3.3 {summary, criteria:[{key, text}]}
+  blueprint     jsonb not null default '{}',  -- §3.3 {summary, criteria:[{key, text}], confirmed}
   status        text default 'active',  -- active | paused | done | abandoned
   created_at    timestamptz default now()
 );
@@ -632,7 +636,7 @@ having count(*) >= 2;
 
 | 화면 | 구성 | 비고 |
 |---|---|---|
-| 목표 입력 | 자연어 입력 → **인터뷰**(라운드마다 문답, 원문 보존) → 생성 진행 스트리밍 | SSE로 단계별 표시. 첫 질문은 청사진 |
+| 목표 입력 | 자연어 입력 → **인터뷰**(라운드마다 문답, 원문 보존) → **완성 기준 확정**(사용자가 고쳐 쓴다) → 생성 진행 스트리밍 | SSE로 단계별 표시. 첫 질문은 청사진 |
 | 메인 (2분할) | 좌: 티켓 보드(「오늘」·「전체」 탭) / 우: React Flow 다이어그램 | **선택 시 양방향 하이라이트** |
 | └ 오늘 | 지금 손댈 수 있는 티켓 + 하루 몫 / 막힌 것 / 선행 대기 | 기본 탭. 규칙은 `frontend/src/today.ts` |
 | └ 전체 | 주 > 태스크 > 티켓 (§2.1) | |
