@@ -21,6 +21,7 @@ import {
   type StepEvent,
   type SuccessCriterion,
 } from "../api";
+import { DOMAINS, words } from "../domain";
 
 interface Props {
   onCreated: (projectId: string) => void;
@@ -42,13 +43,15 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const [answered, setAnswered] = useState<InterviewTurn[]>([]);
   const [criteria, setCriteria] = useState<string[] | null>(null);
   const [summary, setSummary] = useState("");
+  const [domain, setDomain] = useState("software");
   const [repairs, setRepairs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const closeStream = useRef<(() => void) | null>(null);
 
   const openBlueprint = useCallback(
-    (draft: { summary?: string; criteria?: SuccessCriterion[] }) => {
+    (draft: { summary?: string; criteria?: SuccessCriterion[] }, guessed?: string | null) => {
+      if (guessed) setDomain(guessed);
       setSummary(draft.summary ?? "");
       // 최소 한 줄은 비워서라도 내민다 — 직접 쓰는 자리가 보여야 한다.
       setCriteria((draft.criteria ?? []).map((c) => c.text).concat(""));
@@ -67,7 +70,7 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
         if (view.generation.status === "awaiting_clarify") {
           setQuestions(view.generation.questions);
         } else if (view.generation.status === "awaiting_blueprint") {
-          openBlueprint(view.project.blueprint ?? {});
+          openBlueprint(view.project.blueprint ?? {}, view.project.domain);
         }
       } catch {
         // 상태를 못 읽어도 답하는 것 자체는 막지 않는다.
@@ -86,8 +89,8 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
         setRunning(false);
         void loadTranscript(id);
       },
-      onBlueprint: (draft) => {
-        openBlueprint(draft);
+      onBlueprint: (draft, guessed) => {
+        openBlueprint(draft, guessed);
         void loadTranscript(id);
       },
       onDone: (fixes) => {
@@ -152,7 +155,7 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
     const list = (criteria ?? []).map((c) => c.trim()).filter(Boolean);
     setCriteria(null);
     try {
-      await api.confirmBlueprint(projectId, summary.trim(), list);
+      await api.confirmBlueprint(projectId, summary.trim(), list, domain);
       listen(projectId);
     } catch (e) {
       setError(String(e));
@@ -197,9 +200,9 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
                 placeholder="10" inputMode="numeric" disabled={running} />
             </div>
             <div className="field">
-              <label htmlFor="stack">스택 (쉼표로 구분)</label>
+              <label htmlFor="stack">도구 · 스택 (쉼표로 구분)</label>
               <input id="stack" value={stack} onChange={(e) => setStack(e.target.value)}
-                placeholder="unity, c#" disabled={running} />
+                placeholder="unity, c# / 해커스 교재" disabled={running} />
             </div>
           </div>
 
@@ -271,6 +274,25 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
 
       {confirming && (
         <div className="blueprint-edit">
+          <div className="field">
+            <label htmlFor="bp-domain">무엇을 하는 목표인가요</label>
+            <div className="domain-pick" id="bp-domain">
+              {DOMAINS.map((d) => (
+                <button
+                  key={d}
+                  className={domain === d ? "on" : ""}
+                  onClick={() => setDomain(d)}
+                  disabled={running}
+                >
+                  {words(d).label}
+                </button>
+              ))}
+            </div>
+            <span className="hint">
+              고른 쪽에 맞춰 오른쪽 그림을 {words(domain).map}로 그리고, 티켓 문구도 맞춥니다.
+            </span>
+          </div>
+
           <div className="field">
             <label htmlFor="bp-summary">완성된 모습 (한 문장)</label>
             <input

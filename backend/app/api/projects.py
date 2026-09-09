@@ -104,7 +104,8 @@ async def clarify(
     async with db.acquire() as conn:
         await auth.assert_owns_project(conn, project_id, user)
         project = await conn.fetchrow(
-            "select goal_text, constraints, interview from projects where id = $1", project_id
+            "select goal_text, constraints, interview, domain from projects where id = $1",
+            project_id,
         )
         ticket_count = await conn.fetchval(
             "select count(*) from tickets where project_id = $1", project_id
@@ -129,6 +130,7 @@ async def clarify(
         run.known if run else _known_from(project["constraints"]),
         clarify_answers=req.answers,
         interview=run.interview if run else turns,
+        domain=run.domain if run else project["domain"],
     )
     return {"project_id": str(project_id), "status": "running"}
 
@@ -158,16 +160,21 @@ async def confirm_blueprint(
     async with db.transaction() as conn:
         await auth.assert_owns_project(conn, project_id, user)
         project = await conn.fetchrow(
-            "select goal_text, constraints, interview from projects where id = $1", project_id
+            "select goal_text, constraints, interview, domain from projects where id = $1",
+            project_id,
         )
         ticket_count = await conn.fetchval(
             "select count(*) from tickets where project_id = $1", project_id
         )
         if ticket_count:
             raise HTTPException(409, "이미 계획이 만들어진 프로젝트다.")
+        domain = req.domain or project["domain"]
         # 확정 사실을 먼저 남긴다. 이 뒤 그래프가 실패해도 사용자가 쓴 것은 남는다.
         await conn.execute(
-            "update projects set blueprint = $2 where id = $1", project_id, blueprint.model_dump()
+            "update projects set blueprint = $2, domain = $3 where id = $1",
+            project_id,
+            blueprint.model_dump(),
+            domain,
         )
 
     runner = request.app.state.runner
@@ -178,6 +185,7 @@ async def confirm_blueprint(
         run.known if run else _known_from(project["constraints"]),
         interview=run.interview if run else _interview(project),
         blueprint=blueprint,
+        domain=domain,
     )
     return {"project_id": str(project_id), "status": "running"}
 

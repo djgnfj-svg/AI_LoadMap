@@ -12,6 +12,7 @@ import { BlueprintPanel } from "../components/BlueprintPanel";
 import { TicketBoard } from "../components/TicketBoard";
 import { TicketDetail } from "../components/TicketDetail";
 import { TodayFocus } from "../components/TodayFocus";
+import { words } from "../domain";
 import { todayISO } from "../today";
 
 interface Props {
@@ -132,7 +133,7 @@ export function Main({ projectId, onBack, onOpenReview, onResumeInterview }: Pro
         </span>
         {atRisk.length > 0 && (
           <span className="stat" style={{ color: "#f85149" }}>
-            막힌 컴포넌트 <b>{atRisk.length}</b>
+            막힌 {words(view.project.domain).node} <b>{atRisk.length}</b>
           </span>
         )}
         <button

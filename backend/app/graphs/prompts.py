@@ -4,6 +4,7 @@
 프롬프트만 고치고 critic 을 안 고치면 규칙이 두 벌이 된다.
 """
 
+from app.graphs import domains
 from app.models.schemas import (
     MAX_TICKET_MINUTES,
     Blueprint,
@@ -13,17 +14,32 @@ from app.models.schemas import (
     PlanDraft,
 )
 
-SYSTEM = f"""너는 프로젝트 로드맵 설계자다. 목표를 실행 가능한 단위로 분해하고
-동시에 시스템 아키텍처를 그린다.
+SYSTEM_TEMPLATE = """너는 목표 로드맵 설계자다. 목표를 실행 가능한 단위로 분해하고
+동시에 {map_word}를 그린다.
 
 지켜야 할 규칙:
-- 티켓 하나의 예상 소요는 반드시 {MAX_TICKET_MINUTES}분 이내다. 넘으면 실패다.
+- 티켓 하나의 예상 소요는 반드시 {max_min}분 이내다. 넘으면 실패다.
   "인증 구현", "DB 설계" 같은 덩어리는 티켓이 아니다. 그런 건 4~6개로 쪼개라.
 - 완료 조건은 검증 가능해야 한다. "잘 동작한다" 는 안 되고,
-  "테스트 3개 통과", "빌드 성공", "응답 200" 은 된다.
-- 티켓 본문은 코딩 에이전트에 그대로 붙여넣을 수 있어야 한다.
+  {criteria_examples} 은 된다.
+- {ticket_hint}
 - 한국어로 쓴다. 사용자가 입력한 목표의 도메인 용어는 그대로 살린다.
 """
+
+
+def system(domain: str | None = None) -> str:
+    """도메인 프리셋을 끼운 시스템 프롬프트 (SPEC §1.5)."""
+    p = domains.preset(domain)
+    return SYSTEM_TEMPLATE.format(
+        map_word=p.map_word,
+        max_min=MAX_TICKET_MINUTES,
+        criteria_examples=p.criteria_examples,
+        ticket_hint=p.ticket_hint,
+    )
+
+
+# 도메인이 아직 안 정해진 단계(intake)와 도메인과 무관한 단계(재설계)가 쓴다.
+SYSTEM = system("software")
 
 
 INTAKE = """다음 목표에서 프로젝트 제약을 읽어내라.
@@ -36,6 +52,10 @@ INTAKE = """다음 목표에서 프로젝트 제약을 읽어내라.
 
 - title: 목표를 20자 이내로 줄인 프로젝트 이름
 - duration_weeks / hours_per_week / level / stack / team_size 를 채운다.
+  stack 은 쓰기로 한 도구·재료다. 소프트웨어가 아니면 교재·장비·플랫폼이 들어간다.
+- domain: 소프트웨어(앱·서비스·게임·도구)를 **만드는** 목표면 "software",
+  그 밖(학습·자격증·콘텐츠·창작·사업·건강 등)이면 "general".
+  ⚠ 코딩을 배우는 목표는 만드는 게 아니라 배우는 것이므로 "general" 이다.
 - 목표 문장에서 근거를 찾을 수 없어 추측으로 채운 필드 이름을 missing 에 넣는다.
   근거가 있어서 확신하는 필드는 missing 에 넣지 마라.
 """
@@ -77,6 +97,7 @@ BLUEPRINT = """사용자가 말한 「완성」을 검증 가능한 항목으로
   ✓ "낯선 사람이 회원가입 없이 첫 화면에서 검색까지 간다"
   ✗ "네트워크 코드를 작성한다" (그건 할 일이지 완성 상태가 아니다)
 - 사용자가 말하지 않은 기준을 지어내지 마라. 답이 짧으면 항목도 적게 낸다.
+  이건 초안이고 확정은 사용자가 한다. 빈 칸을 채우려고 만들어내지 마라.
 - summary 는 완성된 모습 한 문장. 사용자의 낱말을 그대로 쓴다.
 """
 
@@ -89,7 +110,7 @@ DECOMPOSE = """목표를 주 -> 태스크 -> 티켓으로 분해하라.
 제약:
 - 기간 {duration_weeks}주, 주당 {hours_per_week}시간 (= 주당 {capacity}분)
 - 수준: {level}
-- 스택: {stack}
+- {stack_word}: {stack}
 - 인원: {team_size}명
 
 구조는 주 > 태스크 > 티켓 세 겹이다. **주가 관리 단위다.**
@@ -143,27 +164,48 @@ DECOMPOSE_RETRY = """방금 낸 분해가 검증에서 걸렸다. 아래 위반�
 """
 
 
-ARCHITECT = """이 프로젝트가 만들 시스템의 아키텍처를 그려라.
+ARCHITECT = """{architect_hint}
 
 목표: {goal_text}
-스택: {stack}
+{stack_word}: {stack}
 {blueprint}
-
 주와 태스크:
 {plan}
 
-- 노드 6~15개. node_key 는 'auth', 'netcode', 'db' 처럼 영문 소문자 안정 식별자다.
-  나중에 이 key 로 티켓과 연결되므로 재생성해도 같은 컴포넌트는 같은 key 여야 한다.
+- 노드 6~15개. node_key 는 {node_key_examples} 처럼 영문 소문자 안정 식별자다.
+  나중에 이 key 로 티켓과 연결되므로 재생성해도 같은 {node_word}는 같은 key 여야 한다.
 - label 은 사람이 읽는 이름(한국어 가능).
-- node_type: service | store | client | external
-- layer: frontend | backend | data | infra
-- 엣지는 실제 호출/의존 방향으로 긋는다. label 에 무엇이 오가는지 짧게 적는다.
-- 이 로드맵의 티켓으로 만들어지지 않는 컴포넌트는 넣지 마라.
+- node_type 은 아래 중 하나다:
+{node_types}
+- layer 는 아래 중 하나다:
+{layers}
+- 엣지는 실제 의존 방향으로 긋는다 — 무엇이 무엇의 재료이거나 선행인가.
+  label 에 무엇이 오가는지 짧게 적는다.
+- 이 로드맵의 티켓으로 만들어지지 않는 {node_word}는 넣지 마라.
   붙을 티켓이 없는 노드는 검증에서 걸린다.
 """
 
 
-LINK = """티켓을 아키텍처 노드에 연결하라.
+def architect_prompt(
+    goal_text: str, c: Constraints, plan: str, blueprint: Blueprint, domain: str | None
+) -> str:
+    """도메인 프리셋을 끼운 아키텍처 프롬프트. 낱말만 갈리고 규칙은 같다."""
+    p = domains.preset(domain)
+    return ARCHITECT.format(
+        architect_hint=p.architect_hint,
+        goal_text=goal_text,
+        stack_word=p.stack_word,
+        stack=", ".join(c.stack) or "미정",
+        blueprint=format_blueprint(blueprint),
+        plan=plan,
+        node_key_examples=p.node_key_examples,
+        node_word=p.node_word,
+        node_types=domains.format_types(p),
+        layers=domains.format_layers(p),
+    )
+
+
+LINK = """티켓을 노드에 연결하라.
 
 노드:
 {nodes}
@@ -172,7 +214,7 @@ LINK = """티켓을 아키텍처 노드에 연결하라.
 {tickets}
 
 - 모든 티켓은 최소 1개 노드에 연결된다. 티켓 완료가 노드를 채우는 게 이 제품의 핵심이다.
-- 모든 노드는 최소 1개 티켓을 받는다. 티켓이 없는 노드는 만들어지지 않는 컴포넌트다.
+- 모든 노드는 최소 1개 티켓을 받는다. 티켓이 없는 노드는 아무도 만들지 않는 것이다.
 - 한 티켓이 여러 노드에 걸치면 여러 줄을 낸다. 다만 3개를 넘기지는 마라
   — 어디서 막혔는지 특정하는 게 목적인데 다 걸치면 특정이 안 된다.
 """
@@ -251,11 +293,13 @@ def decompose_prompt(
     c: Constraints,
     interview: list[InterviewTurn] | None = None,
     blueprint: Blueprint | None = None,
+    domain: str | None = None,
 ) -> str:
     return DECOMPOSE.format(
         goal_text=goal_text,
         interview=format_interview(interview or []),
         blueprint=format_blueprint(blueprint or Blueprint()),
+        stack_word=domains.preset(domain).stack_word,
         duration_weeks=c.duration_weeks,
         hours_per_week=c.hours_per_week,
         capacity=c.weekly_capacity_minutes,

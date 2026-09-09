@@ -328,3 +328,30 @@ async def test_완료_조건이_부실하면_다시_쪼갠다():
 
     assert decompose_calls(planner) == 2
     assert result["critic"].ok
+
+
+# ── 도메인 프리셋 (§1.5) ───────────────────────────────────────
+async def test_소프트웨어가_아닌_목표는_낱말이_바뀐다():
+    """구조는 그대로 두고 낱말만 갈아끼운다 — 토익에는 프런트엔드가 없다."""
+    seen: list[str] = []
+
+    class Recording(FakePlanner):
+        async def structured(self, *, system, prompt, output_model):
+            if output_model.__name__ == "ArchitectResult":
+                seen.append(prompt)
+            return await super().structured(system=system, prompt=prompt, output_model=output_model)
+
+    planner = Recording(domain="general")
+    result = await run(planner, goal_text="3개월 안에 토익 900점")
+
+    assert result["draft"].domain == "general"
+    assert "구성요소" in seen[0]
+    assert "deliverable" in seen[0] and "practice" in seen[0]
+    assert "frontend" not in seen[0]
+
+
+async def test_사용자가_확정한_도메인이_추정을_이긴다():
+    planner = FakePlanner(domain="general")
+    result = await run(planner, domain="software")
+
+    assert result["draft"].domain == "software"

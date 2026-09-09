@@ -8,7 +8,7 @@ import pytest
 
 from app.config import get_settings
 from app.graphs.persist import create_project, layout_positions, persist_plan
-from app.models.schemas import Constraints, PlanDraft
+from app.models.schemas import Constraints, DraftNode, PlanDraft
 from tests.fakes import ARCHITECT, make_decompose, make_links
 
 CONSTRAINTS = Constraints(
@@ -214,3 +214,24 @@ async def test_막힘은_상태가_아니라_사유_한_줄이다(conn):
         await conn.execute(
             "update tickets set status = 'blocked' where id = $1", ticket_id
         )
+
+
+def test_도메인마다_다이어그램_줄_순서가_다르다():
+    """§1.5 — 일반 도메인은 결과물이 맨 위, 환경이 맨 아래다."""
+    draft = PlanDraft(
+        domain="general",
+        nodes=[
+            DraftNode(node_key="score", label="점수", node_type="deliverable", layer="output"),
+            DraftNode(node_key="drill", label="문제풀이", node_type="skill", layer="practice"),
+        ],
+    )
+    positions = layout_positions(draft)
+    assert positions["score"]["y"] < positions["drill"]["y"]
+
+
+def test_모르는_레이어는_맨_아랫줄로_떨어진다():
+    draft = PlanDraft(
+        domain="software",
+        nodes=[DraftNode(node_key="x", label="X", node_type="service", layer="output")],
+    )
+    assert layout_positions(draft)["x"]["y"] > 0

@@ -121,6 +121,12 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
   font-size: 11px; color: var(--muted);
 }
 .blueprint-edit .add { margin-top: 2px; }
+.domain-pick { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.domain-pick button {
+  padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--muted); font-size: 13px;
+}
+.domain-pick button.on { border-color: var(--accent, #4493f8); color: var(--fg, #e6edf3); }
 
 /* 지금까지 답한 것 — 이 계획의 근거가 무엇인지 화면에 남겨 둔다 */
 .transcript {

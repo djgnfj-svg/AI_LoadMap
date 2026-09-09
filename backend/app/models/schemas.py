@@ -9,8 +9,23 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Level = Literal["beginner", "intermediate", "advanced"]
-NodeType = Literal["service", "store", "client", "external"]
-Layer = Literal["frontend", "backend", "data", "infra"]
+# 도메인 프리셋 (SPEC §1.5). 낱말만 갈아끼운다 — 구조는 도메인과 무관하다.
+# 값과 뜻은 app/graphs/domains.py 에 있다.
+Domain = Literal["software", "general"]
+NodeType = Literal[
+    # software
+    "service", "store", "client",
+    # general
+    "deliverable", "skill", "resource",
+    # 공통 — 내가 만들지 않는 것
+    "external",
+]
+Layer = Literal[
+    # software
+    "frontend", "backend", "data", "infra",
+    # general
+    "output", "practice", "input", "support",
+]
 # 태스크와 티켓이 같은 낱말을 쓴다.
 # ⚠ 「막힘」은 여기 없다 — parked 는 접힘(의도적으로 미룸)이지 막힘이 아니다.
 # 막힘은 상태가 아니라 blocked_reason 한 줄과 blocked 이벤트가 든다.
@@ -46,6 +61,8 @@ class IntakeResult(BaseModel):
     title: str
     constraints: Constraints
     missing: list[str]
+    # 소프트웨어를 만드는 목표인지, 그 밖인지. 사용자가 청사진 확정 화면에서 바꿀 수 있다.
+    domain: Domain = "software"
 
 
 class ClarifyQuestion(BaseModel):
@@ -180,6 +197,7 @@ class LinkResult(BaseModel):
 class PlanDraft(BaseModel):
     """생성 그래프가 굴리는 계획 초안 전체."""
 
+    domain: Domain = "software"
     blueprint: Blueprint = Blueprint()
     weekly_goals: list[DraftWeeklyGoal] = []
     tasks: list[DraftTask] = []
@@ -245,6 +263,8 @@ class BlueprintConfirmRequest(BaseModel):
 
     summary: str = ""
     criteria: list[str] = []
+    # 도메인도 여기서 확정한다 — AI 의 판정이 틀렸으면 사용자가 바꾼다.
+    domain: Domain | None = None
 
 
 class TicketPatchRequest(BaseModel):

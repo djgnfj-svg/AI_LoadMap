@@ -23,6 +23,7 @@ class PlanState(TypedDict, total=False):
     clarify_answers: dict[str, str]   # 이번 실행에서 새로 받은 답
     interview: list[InterviewTurn]    # 지금까지의 문답 전문 (DB 에서 실려 온다)
     blueprint: Blueprint | None       # 청사진 (초안이면 confirmed=False)
+    domain: str | None                # 도메인 프리셋 키 (SPEC §1.5)
 
     # intake / interview
     title: str

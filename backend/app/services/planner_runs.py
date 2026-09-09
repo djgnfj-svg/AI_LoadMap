@@ -54,6 +54,7 @@ class PlanRun:
     questions: list[ClarifyQuestion] = field(default_factory=list)
     interview: list[InterviewTurn] = field(default_factory=list)
     blueprint: Blueprint | None = None
+    domain: str | None = None
     repairs: list[str] = field(default_factory=list)
     error: str | None = None
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
@@ -76,6 +77,7 @@ class PlanRunner:
         clarify_answers: dict[str, str] | None = None,
         interview: list[InterviewTurn] | None = None,
         blueprint: Blueprint | None = None,
+        domain: str | None = None,
     ) -> PlanRun:
         run = PlanRun(
             project_id=project_id,
@@ -83,6 +85,7 @@ class PlanRunner:
             known=known,
             interview=list(interview or []),
             blueprint=blueprint,
+            domain=domain,
         )
         self._runs[project_id] = run
         run.task = asyncio.create_task(self._execute(run, clarify_answers or {}))
@@ -95,6 +98,7 @@ class PlanRunner:
             "clarify_answers": clarify_answers,
             "interview": run.interview,
             "blueprint": run.blueprint,
+            "domain": run.domain,
             "attempt": 0,
         }
         final: dict[str, Any] = dict(state)
@@ -106,6 +110,7 @@ class PlanRunner:
 
             run.interview = final.get("interview") or run.interview
             run.blueprint = final.get("blueprint") or run.blueprint
+            run.domain = final.get("domain") or run.domain
             await self._save_interview(run)
 
             if final.get("awaiting_blueprint"):
@@ -114,6 +119,7 @@ class PlanRunner:
                     {
                         "event": "blueprint",
                         "blueprint": (run.blueprint or Blueprint()).model_dump(),
+                        "domain": run.domain,
                     }
                 )
                 return
@@ -179,10 +185,12 @@ class PlanRunner:
         """
         async with db.transaction() as conn:
             await conn.execute(
-                "update projects set interview = $2, blueprint = $3 where id = $1",
+                "update projects set interview = $2, blueprint = $3, "
+                "domain = coalesce($4, domain) where id = $1",
                 run.project_id,
                 [t.model_dump() for t in run.interview],
                 (run.blueprint or Blueprint()).model_dump(),
+                run.domain,
             )
 
     async def _persist(self, run: PlanRun, final: dict[str, Any]) -> None:

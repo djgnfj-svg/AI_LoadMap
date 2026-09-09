@@ -104,7 +104,22 @@ AI가 필수인 시대가 되면서 진입 장벽이 코딩에서 **기획**으�
 - 코딩 에이전트를 쓰므로 **티켓 = 프롬프트 단위**로 바로 소비 가능
 
 **2차 (확장)** — 비개발자 입문자 / 부트캠프 수강생
-- 목표를 구조화해서 말하지 못함 → `clarify` 단계와 도메인 템플릿이 필수
+- 목표를 구조화해서 말하지 못함 → 인터뷰(§3.3)와 도메인 프리셋이 필수
+
+#### 도메인 프리셋 (2026-09-09 개정)
+
+구조는 도메인과 무관하다 — 주 > 태스크 > 티켓, 티켓이 노드를 채우고, 지연이 쌓이면 재점검일이 잡힌다. **도메인마다 다른 것은 낱말뿐이다.** 그래서 프리셋 하나를 프롬프트에 끼우는 값 묶음으로 두고(`backend/app/graphs/domains.py`) 그래프·critic·감지는 건드리지 않는다.
+
+| | 소프트웨어 | 일반 |
+|---|---|---|
+| 그림 이름 | 아키텍처 | 구성요소 지도 |
+| 노드 | 컴포넌트 | 구성요소 |
+| `node_type` | service · store · client · external | deliverable · skill · resource · external |
+| `layer` | frontend · backend · data · infra | output · practice · input · support |
+| 티켓 본문 | 코딩 에이전트에 붙여넣는다 | 처음 하는 사람이 따라 한다 |
+| 완료 조건 예시 | "테스트 3개 통과", "빌드 성공" | "모의고사 1회분 채점 완료", "영상 1편 업로드" |
+
+도메인은 `intake` 가 목표 문장으로 **추정**하고, 사용자가 청사진 확정 화면에서 **바꾼다**. 추정이 틀려도 계획이 만들어지기 전에 사용자가 잡는다.
 
 ### 1.6 사용자 시나리오
 
@@ -345,7 +360,7 @@ LLM에게 분해를 시키면 "인증 구현", "DB 설계" 같은 덩어리가 �
 
 ```
 intake
-  │  목표 텍스트 + 제약(기간/주당 가용시간/수준/스택) 파싱
+  │  목표 텍스트 + 제약(기간/주당 가용시간/수준/도구) 파싱 + 도메인 추정 (§1.5)
   ▼
 interview ──────────► [사용자 응답 대기]
   │  1라운드: 고정 질문 (LLM 미개입). 청사진 → 완료 기준 → 현재 위치 → 기한.
@@ -357,6 +372,7 @@ interview ──────────► [사용자 응답 대기]
 blueprint ──────────► [사용자 확정 대기]
   │  「무엇이 되면 끝났다고 할 수 있나」의 답을 검증 가능한 기준 3~6개로 끊는다.
   │  ⚠ AI 는 **초안만** 쓴다. 고치고 지우고 더하고 확정하는 것은 사용자다.
+  │     도메인도 여기서 사용자가 확정한다 (§1.5).
   │     확정 전에는 계획을 만들지 않는다. 무엇이 「끝」인지는 목표를 가진 사람만
   │     정할 수 있고, AI 가 정하면 그 뒤의 계획 전체가 남의 목표가 된다.
   │  인터뷰를 전부 건너뛰었으면 빈 초안을 내민다 (기준을 지어내지 않는다).
@@ -426,7 +442,7 @@ diff
 | POST | `/projects` | 목표 입력 → 생성 그래프 시작 |
 | GET | `/projects/{id}/stream` | SSE, 그래프 진행 상황 스트리밍 |
 | POST | `/projects/{id}/clarify` | 인터뷰 답변 제출 (메모리에 실행이 없어도 받는다) |
-| POST | `/projects/{id}/blueprint` | 완성 기준 확정 (사용자가 고쳐 쓴 것이 기준이 된다) |
+| POST | `/projects/{id}/blueprint` | 완성 기준 + 도메인 확정 (사용자가 고쳐 쓴 것이 기준이 된다) |
 | GET | `/projects/{id}` | 로드맵 + 아키텍처 전체 조회 |
 | PATCH | `/tickets/{id}` | 상태 변경 (완료/연기/차단) |
 | POST | `/tickets/{id}/block` | 막힘 사유 입력 |
@@ -479,6 +495,7 @@ create table projects (
   constraints   jsonb not null,         -- {duration_weeks, hours_per_week, level, stack[], team_size}
   interview     jsonb not null default '[]',  -- §3.3 문답 전문 [{round, field, question, answer}]
   blueprint     jsonb not null default '{}',  -- §3.3 {summary, criteria:[{key, text}], confirmed}
+  domain        text not null default 'software',  -- §1.5 software | general
   status        text default 'active',  -- active | paused | done | abandoned
   created_at    timestamptz default now()
 );
@@ -528,8 +545,8 @@ create table arch_nodes (
   project_id    uuid references projects(id) on delete cascade,
   node_key      text not null,          -- 'auth', 'netcode', 'db' 등 안정 식별자
   label         text not null,
-  node_type     text,                   -- service | store | client | external
-  layer         text,                   -- frontend | backend | data | infra
+  node_type     text,                   -- 도메인 프리셋에 따라 (§1.5)
+  layer         text,                   -- 도메인 프리셋에 따라 (§1.5)
   position      jsonb,                  -- React Flow 좌표 {x, y}
   status        text default 'pending', -- pending | in_progress | done | at_risk
   unique (project_id, node_key)

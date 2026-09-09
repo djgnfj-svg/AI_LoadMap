@@ -1,7 +1,8 @@
-/** 티켓 상세 (SPEC §5). 복사 버튼이 곧 코딩 에이전트 프롬프트다 (§2.2). */
+/** 티켓 상세 (SPEC §5). 복사 버튼이 곧 에이전트·실행 프롬프트다 (§2.2). */
 import { useState } from "react";
 
 import type { ArchNodeRow, ProjectView, Ticket } from "../api";
+import { words } from "../domain";
 
 interface Props {
   view: ProjectView;
@@ -14,10 +15,15 @@ interface Props {
   onSelectNode: (nodeId: string) => void;
 }
 
-function agentPrompt(ticket: Ticket, nodes: ArchNodeRow[], deps: Ticket[]): string {
+function agentPrompt(
+  ticket: Ticket,
+  nodes: ArchNodeRow[],
+  deps: Ticket[],
+  nodeWord: string,
+): string {
   const lines = [`# ${ticket.title}`, "", ticket.body ?? ""];
   if (nodes.length > 0) {
-    lines.push("", `연결 컴포넌트: ${nodes.map((n) => n.node_key).join(", ")}`);
+    lines.push("", `연결 ${nodeWord}: ${nodes.map((n) => n.node_key).join(", ")}`);
   }
   if (deps.length > 0) {
     lines.push(`선행 티켓: ${deps.map((d) => d.title).join(" / ")}`);
@@ -29,6 +35,7 @@ function agentPrompt(ticket: Ticket, nodes: ArchNodeRow[], deps: Ticket[]): stri
 export function TicketDetail({ view, ticket, onClose, onAction, onSelectNode }: Props) {
   const [copied, setCopied] = useState(false);
   const [reason, setReason] = useState("");
+  const nodeWord = words(view.project.domain).node;
 
   const nodeIds = new Set(
     view.ticket_node_links.filter((l) => l.ticket_id === ticket.id).map((l) => l.node_id),
@@ -42,7 +49,7 @@ export function TicketDetail({ view, ticket, onClose, onAction, onSelectNode }: 
   const blockedByOpenDep = deps.some((d) => d.status !== "resolved");
 
   const copy = async () => {
-    await navigator.clipboard.writeText(agentPrompt(ticket, nodes, deps));
+    await navigator.clipboard.writeText(agentPrompt(ticket, nodes, deps, nodeWord));
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
@@ -72,7 +79,7 @@ export function TicketDetail({ view, ticket, onClose, onAction, onSelectNode }: 
 
       {nodes.length > 0 && (
         <section>
-          <h5>연결 컴포넌트</h5>
+          <h5>연결 {nodeWord}</h5>
           {nodes.map((n) => (
             <button key={n.id} className="chip" onClick={() => onSelectNode(n.id)}>
               <span

@@ -98,6 +98,7 @@ class FakePlanner:
         missing: list[str] | None = None,
         followups: list[str] | None = None,
         blueprint: BlueprintResult | None = None,
+        domain: str = "software",
         constraints: Constraints | None = None,
         n_tickets: int = 4,
     ) -> None:
@@ -106,6 +107,7 @@ class FakePlanner:
         # 2라운드 후속 질문. 기본은 「더 물을 것 없음」이다 (1라운드로 끝난다).
         self.followups = followups or []
         self.blueprint = blueprint if blueprint is not None else BLUEPRINT
+        self.domain = domain
         self.constraints = constraints or Constraints(
             duration_weeks=4,
             hours_per_week=10,
@@ -124,7 +126,10 @@ class FakePlanner:
 
         if name == "IntakeResult":
             return IntakeResult(
-                title="테스트 프로젝트", constraints=self.constraints, missing=self.missing
+                title="테스트 프로젝트",
+                constraints=self.constraints,
+                missing=self.missing,
+                domain=self.domain,
             )
         if name == "ClarifyResult":
             # 인터뷰 2라운드 — 1라운드 답을 읽고 더 물을 게 있는지 정하는 자리다.

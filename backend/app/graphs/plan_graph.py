@@ -66,7 +66,18 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
                 merged[field] = value
         constraints = Constraints(**merged)
         missing = [m for m in result.missing if known.get(m) is None]
-        return {"title": result.title, "constraints": constraints, "missing": missing}
+        # 도메인은 사용자가 청사진 확정 화면에서 바꿀 수 있다. 확정본이 실려 오면
+        # 그것이 이긴다 — 여기 것은 목표 문장만 보고 한 추정이다.
+        domain = state.get("domain") or result.domain
+        return {
+            "title": result.title,
+            "constraints": constraints,
+            "missing": missing,
+            "domain": domain,
+            "draft": (state.get("draft") or PlanDraft()).model_copy(
+                update={"domain": domain}
+            ),
+        }
 
     # ── interview ─────────────────────────────────────────────
     async def interview(state: PlanState) -> dict:
@@ -119,7 +130,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
             return proceed(turns)
 
         result: ClarifyResult = await planner.structured(
-            system=prompts.SYSTEM,
+            system=prompts.system(state.get("domain")),
             prompt=prompts.FOLLOWUP.format(
                 goal_text=state["goal_text"],
                 transcript=prompts.format_transcript(turns),
@@ -172,7 +183,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
         turns: list[InterviewTurn] = state.get("interview") or []
         if any(t.answer.strip() for t in turns):
             result: BlueprintResult = await planner.structured(
-                system=prompts.SYSTEM,
+                system=prompts.system(state.get("domain")),
                 prompt=prompts.BLUEPRINT.format(
                     goal_text=state["goal_text"],
                     transcript=prompts.format_transcript(turns),
@@ -204,6 +215,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
             constraints,
             state.get("interview") or [],
             previous_draft.blueprint,
+            state.get("domain"),
         )
 
         critic = state.get("critic")
@@ -218,7 +230,9 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
             )
 
         result: DecomposeResult = await planner.structured(
-            system=prompts.SYSTEM, prompt=prompt, output_model=DecomposeResult
+            system=prompts.system(state.get("domain")),
+            prompt=prompt,
+            output_model=DecomposeResult,
         )
         draft = previous_draft.model_copy(
             update={
@@ -235,12 +249,13 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
         draft: PlanDraft = state["draft"]
         plan_text = prompts.format_previous(draft)
         result: ArchitectResult = await planner.structured(
-            system=prompts.SYSTEM,
-            prompt=prompts.ARCHITECT.format(
-                goal_text=state["goal_text"],
-                stack=", ".join(constraints.stack) or "미정",
-                blueprint=prompts.format_blueprint(draft.blueprint),
-                plan=plan_text,
+            system=prompts.system(state.get("domain")),
+            prompt=prompts.architect_prompt(
+                state["goal_text"],
+                constraints,
+                plan_text,
+                draft.blueprint,
+                state.get("domain"),
             ),
             output_model=ArchitectResult,
         )
@@ -252,7 +267,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
         nodes_text = "\n".join(f"- {n.node_key} ({n.layer}): {n.label}" for n in draft.nodes)
         tickets_text = "\n".join(f"- {t.key}: {t.title}" for t in draft.tickets)
         result: LinkResult = await planner.structured(
-            system=prompts.SYSTEM,
+            system=prompts.system(state.get("domain")),
             prompt=prompts.LINK.format(nodes=nodes_text, tickets=tickets_text),
             output_model=LinkResult,
         )

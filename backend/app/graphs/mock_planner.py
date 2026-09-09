@@ -107,6 +107,15 @@ class MockPlanner:
         weeks = _int_from(prompt, r"(\d+)\s*주", 8)
         hours = _int_from(prompt, r"주당?\s*(\d+)\s*시간", 10)
         goal = prompt.split("목표:", 1)[-1].strip().splitlines()[0][:20] or "새 프로젝트"
+        # 목업이라 판정할 수 없다. 낱말 몇 개로만 가른다 — 실제 판정은 LLM 이 한다.
+        made = ("게임", "앱", "서비스", "웹", "봇", "도구", "사이트", "api")
+        learned = ("배우", "공부", "자격", "시험", "점수", "합격", "익히")
+        text = prompt.lower()
+        domain = (
+            "general"
+            if any(w in text for w in learned) or not any(w in text for w in made)
+            else "software"
+        )
         return IntakeResult(
             title=goal,
             constraints=Constraints(
@@ -117,6 +126,7 @@ class MockPlanner:
                 team_size=1,
             ),
             missing=[],
+            domain=domain,
         )
 
     def _ClarifyResult(self, prompt: str) -> ClarifyResult:  # noqa: N802
@@ -235,10 +245,19 @@ class MockPlanner:
         return DecomposeResult(weekly_goals=goals, tasks=tasks, tickets=tickets)
 
     def _ArchitectResult(self, prompt: str) -> ArchitectResult:  # noqa: N802
+        # 프롬프트가 허용한 유형·레이어만 쓴다 (도메인 프리셋, SPEC §1.5).
+        types = re.findall(r"^  \* (\w+): ", prompt, flags=re.MULTILINE)
+        node_types = types[:4] or ["service", "store", "client", "external"]
+        layers = types[4:8] or ["frontend", "backend", "data", "infra"]
         return ArchitectResult(
             nodes=[
-                DraftNode(node_key=k, label=lab, node_type=nt, layer=lay)
-                for k, lab, nt, lay in _NODES
+                DraftNode(
+                    node_key=k,
+                    label=lab,
+                    node_type=node_types[i % len(node_types)],
+                    layer=layers[i % len(layers)],
+                )
+                for i, (k, lab, _nt, _lay) in enumerate(_NODES)
             ],
             edges=[DraftEdge(from_key=f, to_key=t, label=lab) for f, t, lab in _EDGES],
         )

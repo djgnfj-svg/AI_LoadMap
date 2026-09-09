@@ -20,6 +20,7 @@ supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 �
                                0004 가 users 를 넣고 프로젝트에 주인을 붙인다
                                0005 가 인터뷰 문답을 프로젝트에 붙인다
                                0006 이 완성 청사진과 주별 covers 를 넣는다
+                               0007 이 도메인 프리셋을 넣는다 (코딩 아닌 목표)
 scripts/setup.sh               로컬 세팅 한 방
 scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
@@ -34,6 +35,7 @@ backend/
   app/graphs/                  LangGraph 생성 그래프
     critic.py                  검증 (LLM 미개입) — 이 그래프의 존재 이유
     interview.py               1라운드 고정 질문 (LLM 미개입) + 답변 → 제약 반영
+    domains.py                 도메인 프리셋 — 소프트웨어 / 일반. 낱말만 갈아끼운다
     repair.py                  재시도 소진 시 결정적 복구
     plan_graph.py              intake → interview → blueprint → decompose → architect → link → critic → emit
     replan_graph.py            collect_signals → diagnose → replan_scope → propose → critic → diff
@@ -49,6 +51,20 @@ backend/
   app/services/               이벤트 기록, 노드 상태 동기화, 재설계 적용
   tests/                       critic / repair / 그래프 / 저장 / API
 ```
+
+## 도메인
+
+코딩만 되는 도구가 아닙니다. 구조(주 > 태스크 > 티켓, 티켓이 노드를 채우고 지연이
+쌓이면 재점검일)는 그대로 두고 **낱말만 갈아끼웁니다** — `app/graphs/domains.py`.
+
+| | 소프트웨어 | 일반 (학습 · 콘텐츠 · 사업 …) |
+|---|---|---|
+| 오른쪽 그림 | 아키텍처 · 컴포넌트 | 구성요소 지도 · 구성요소 |
+| 노드 유형 | service · store · client · external | deliverable · skill · resource · external |
+| 노드 층 | frontend · backend · data · infra | output · practice · input · support |
+| 완료 조건 예시 | "테스트 3개 통과", "빌드 성공" | "모의고사 1회분 채점 완료", "영상 1편 업로드" |
+
+목표 문장으로 AI 가 추정하고, **완성 기준 확정 화면에서 사용자가 바꿉니다.**
 
 ## 계층
 
@@ -77,7 +93,7 @@ backend/
 | R3 재설계는 주 1개 | `replan_scope` 가 지연이 가장 많은 주 하나만 고른다 |
 | R4 `missed`는 이벤트 | `defer` 는 `delay_count` 만 올리고 `status` 는 유지. 같은 마감일에 두 번 기록하지 않는다 |
 | R5 알람은 진단 | "netcode 쪽에서 3번 멈췄어요. 다시 짤까요?" — 문구가 기능이다 |
-| 청사진은 사용자 것 | 완성 기준 초안은 AI 가 쓰지만 `confirmed` 가 되기 전에는 계획을 만들지 않는다 (`plan_graph.py` blueprint 노드) |
+| 청사진은 사용자 것 | 완성 기준 초안은 AI 가 쓰지만 `confirmed` 가 되기 전에는 계획을 만들지 않는다 (`plan_graph.py` blueprint 노드). 도메인도 같이 확정한다 |
 | 청사진 커버리지 | 사용자가 확정한 완성 기준을 어느 주도 안 맡으면 `critic.py` 가 다시 쪼개게 한다 (집합 연산, LLM 미개입) |
 | 티켓 본문 | 완료 조건 2개 이상 + 확인 가능한 서술을 `critic.py` 가 검사한다. 못 채우면 `repair.py` 가 `(확인 필요)` 로 채우고 밝힌다 |
 
@@ -151,7 +167,7 @@ cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 157개
+.venv/bin/python -m pytest -q          # 162개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend
@@ -200,7 +216,7 @@ TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 | POST | `/projects` | 목표 입력 → 생성 그래프 시작 |
 | GET | `/projects/{id}/stream` | SSE, 그래프 진행 상황 |
 | POST | `/projects/{id}/clarify` | 인터뷰 답변 제출 (새로고침·재시작 뒤에도 이어진다) |
-| POST | `/projects/{id}/blueprint` | 완성 기준 확정 — AI 는 초안만 쓰고 확정은 사용자가 한다 |
+| POST | `/projects/{id}/blueprint` | 완성 기준 · 도메인 확정 — AI 는 초안만 쓰고 확정은 사용자가 한다 |
 | GET | `/projects/{id}` | 로드맵 + 아키텍처 + 노드 상태 |
 | PATCH | `/tickets/{id}` | `start` / `complete` / `block` / `unblock` / `defer` |
 | POST | `/tickets/{id}/block` | 막힘 사유 한 줄 입력 |

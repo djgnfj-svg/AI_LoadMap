@@ -21,6 +21,8 @@ export interface Project {
   };
   status: string;
   start_date: string;
+  /** §1.5 도메인 프리셋 — 낱말만 갈린다. "software" | "general" */
+  domain: string;
   /** §3.3 완성 청사진. 초안은 AI 가 쓰고 **확정은 사용자가 한다**. */
   blueprint: { summary?: string; criteria?: SuccessCriterion[]; confirmed?: boolean };
 }
@@ -177,6 +179,8 @@ export interface ProjectSummary {
   goal_text: string;
   status: string;
   start_date: string;
+  /** §1.5 도메인 프리셋 — 낱말만 갈린다. "software" | "general" */
+  domain: string;
   created_at: string;
   ticket_count: number;
   resolved_count: number;
@@ -208,11 +212,11 @@ export const api = {
       body: JSON.stringify({ answers }),
     }),
 
-  /** 완성 기준을 사용자가 확정한다 (§3.3). 고쳐 쓴 것이 그대로 검증 대상이 된다. */
-  confirmBlueprint: (id: string, summary: string, criteria: string[]) =>
+  /** 완성 기준과 도메인을 사용자가 확정한다 (§3.3, §1.5). */
+  confirmBlueprint: (id: string, summary: string, criteria: string[], domain: string) =>
     request<{ project_id: string; status: string }>(`/projects/${id}/blueprint`, {
       method: "POST",
-      body: JSON.stringify({ summary, criteria }),
+      body: JSON.stringify({ summary, criteria, domain }),
     }),
 
   patchTicket: (
@@ -241,7 +245,10 @@ export function streamGeneration(
   handlers: {
     onStep: (e: StepEvent) => void;
     onClarify: (questions: ClarifyQuestion[]) => void;
-    onBlueprint: (draft: { summary?: string; criteria?: SuccessCriterion[] }) => void;
+    onBlueprint: (
+      draft: { summary?: string; criteria?: SuccessCriterion[] },
+      domain: string | null,
+    ) => void;
     onDone: (repairs: string[]) => void;
     onError: (message: string) => void;
   },
@@ -255,7 +262,8 @@ export function streamGeneration(
     close();
   });
   source.addEventListener("blueprint", (e) => {
-    handlers.onBlueprint(JSON.parse((e as MessageEvent).data).blueprint ?? {});
+    const data = JSON.parse((e as MessageEvent).data);
+    handlers.onBlueprint(data.blueprint ?? {}, data.domain ?? null);
     close();
   });
   source.addEventListener("done", (e) => {

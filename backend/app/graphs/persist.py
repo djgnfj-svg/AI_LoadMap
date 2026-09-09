@@ -11,25 +11,30 @@ from datetime import date, timedelta
 
 import asyncpg
 
+from app.graphs import domains
 from app.models.schemas import Constraints, PlanDraft
 
 # React Flow 좌표 계산용 (SPEC §4.2 arch_nodes.position)
-LAYER_ORDER = ["frontend", "backend", "data", "infra"]
 _X_STEP = 260
 _Y_STEP = 160
 
 
 def layout_positions(draft: PlanDraft) -> dict[str, dict[str, int]]:
-    """레이어별로 가로 정렬한 결정적 좌표. 프론트에서 다시 계산할 필요가 없다."""
+    """레이어별로 가로 정렬한 결정적 좌표. 프론트에서 다시 계산할 필요가 없다.
+
+    줄 순서는 도메인 프리셋이 정한다 — 소프트웨어는 frontend..infra,
+    일반은 output..support 다 (SPEC §1.5).
+    """
+    order = domains.layer_order(domains.preset(draft.domain))
     positions: dict[str, dict[str, int]] = {}
     per_layer: dict[str, int] = {}
     for node in draft.nodes:
-        layer = node.layer if node.layer in LAYER_ORDER else "backend"
+        layer = node.layer if node.layer in order else order[-1]
         col = per_layer.get(layer, 0)
         per_layer[layer] = col + 1
         positions[node.node_key] = {
             "x": col * _X_STEP,
-            "y": LAYER_ORDER.index(layer) * _Y_STEP,
+            "y": order.index(layer) * _Y_STEP,
         }
     return positions
 
@@ -84,11 +89,13 @@ async def persist_plan(
     ) or date.today()
 
     await conn.execute(
-        "update projects set title = $2, constraints = $3, blueprint = $4 where id = $1",
+        "update projects set title = $2, constraints = $3, blueprint = $4, domain = $5 "
+        "where id = $1",
         project_id,
         title,
         constraints.model_dump(),
         draft.blueprint.model_dump(),
+        draft.domain,
     )
 
     # ── 주 (관리 단위이자 최상위) ──────────────────────────────
