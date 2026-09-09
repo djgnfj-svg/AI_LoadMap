@@ -23,6 +23,7 @@ TODAY = date(2026, 9, 20)
 async def app_client(test_dsn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", test_dsn)
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     get_settings.cache_clear()
 
     from app.main import create_app
@@ -35,6 +36,7 @@ async def app_client(test_dsn, monkeypatch):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            assert (await c.post("/auth/demo")).status_code == 200
             yield c
 
     get_settings.cache_clear()

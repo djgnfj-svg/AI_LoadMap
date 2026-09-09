@@ -17,9 +17,12 @@
 docs/SPEC.md                   기준 문서 (§0 불변 규칙 R1~R6 포함)
 supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 뷰
                                0003 이 계층을 주 > 태스크 > 티켓으로 바꾼다
+                               0004 가 users 를 넣고 프로젝트에 주인을 붙인다
 scripts/setup.sh               로컬 세팅 한 방
 scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
+  src/screens/Login.tsx        구글 로그인 (또는 데모 계정)
+  src/screens/ProjectList.tsx  내 로드맵 목록
   src/screens/GoalInput.tsx    목표 입력 → clarify → SSE 진행
   src/screens/Main.tsx         2분할 + 양방향 하이라이트
   src/screens/ReviewSession.tsx 재점검 세션 (집계 → 진단 → diff → 승인)
@@ -35,6 +38,7 @@ backend/
     persist.py                 emit — 검증된 초안을 DB 로
     llm.py                     Claude 호출 경계면 (테스트에서 가짜로 교체)
     mock_planner.py            API 키 없이 그래프를 끝까지 돌리는 목업
+  app/auth.py                  구글 ID 토큰 검증 + 서명된 세션 쿠키
   app/api/                     §3.5 REST + SSE
   app/scheduler.py             §3.6 스케줄러 4개 작업
   app/services/detection.py    §2.3·§4.5 실패 감지 — 전부 SQL (R2)
@@ -97,6 +101,26 @@ cd AI_LoadMap
 루트 `.env` 를 직접 고칩니다. Supabase 를 쓸 거면 프로젝트의
 Settings → Database → Connection string (URI) 을 그대로 넣으면 됩니다.
 
+### 로그인
+
+구글 계정 하나만 받습니다. `.env` 의 `GOOGLE_CLIENT_ID` 가 **비어 있으면 데모 계정**으로
+열립니다 — API 키가 없으면 목업 Planner 로 도는 것과 같은 결입니다.
+
+실제 구글 로그인을 켜려면:
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → **사용자 인증 정보**
+2. **OAuth 클라이언트 ID 만들기** → 애플리케이션 유형 **웹 애플리케이션**
+3. **승인된 JavaScript 원본**에 `http://localhost:5173` 추가 (배포하면 그 도메인도)
+4. 받은 클라이언트 ID 를 `.env` 의 `GOOGLE_CLIENT_ID` 에 붙여넣기
+5. `SESSION_SECRET` 도 채웁니다 — 비어 있으면 서버를 재시작할 때마다 로그인이 풀립니다
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+⚠ `GOOGLE_CLIENT_ID` 가 들어오는 순간 **데모 로그인 문은 닫힙니다.** 배포한 곳에서
+아무나 데모 계정으로 들어오는 것을 막기 위해서입니다.
+
 ### API 키 없이 돌리기
 
 `.env` 의 `ANTHROPIC_API_KEY` 가 비어 있으면 **목업 Planner** 가 들어갑니다.
@@ -109,8 +133,8 @@ Settings → Database → Connection string (URI) 을 그대로 넣으면 됩니
 
 ```bash
 createdb roadmap_planner
-psql -d roadmap_planner -f supabase/migrations/0001_init.sql
-psql -d roadmap_planner -f supabase/migrations/0002_alerts.sql
+# 번호순으로 전부 적용한다. 하나라도 빠지면 뒤엣것이 깨진다.
+for f in supabase/migrations/*.sql; do psql -v ON_ERROR_STOP=1 -d roadmap_planner -f "$f"; done
 
 cd backend && uv venv --python 3.11 .venv && VIRTUAL_ENV=.venv uv pip install -e ".[dev]"
 cd ../frontend && npm install
@@ -121,7 +145,7 @@ cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 107개
+.venv/bin/python -m pytest -q          # 125개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend
@@ -129,8 +153,9 @@ npm run build                          # tsc -b && vite build
 npm run lint
 ```
 
-`critic` · `repair` · 생성/재설계 그래프 테스트는 **API 키 없이** 돕니다 (목업 Planner).
-DB 테스트는 Postgres 가 필요하고, 없으면 자동으로 skip 합니다.
+`critic` · `repair` · 생성/재설계 그래프 · 세션 쿠키 테스트는 **API 키 없이** 돕니다 (목업 Planner).
+DB 테스트는 Postgres 가 필요하고, 없으면 자동으로 skip 합니다 — skip 이 많이 보이면
+DB 에 못 붙은 것이지 통과한 것이 아닙니다.
 
 ```bash
 # 다른 DB 를 쓰려면
@@ -151,12 +176,21 @@ TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 | D8 | 알람 + 재점검일 생성 | 완료 |
 | D9 | 재설계 그래프 + diff 승인 | 완료 |
 | D10 | 실제 프로젝트 투입 | `scripts/seed_self.py` 로 시드 완료, 계속 쓰면서 검증 남음 |
-| D11 | UI 정리 + 배포 | — |
+| D11 | UI 정리 + 배포 | 진행 중 — 로그인 · 내 로드맵 목록 완료 |
 
 ## API
 
+모든 API 가 로그인을 요구합니다. 남의 프로젝트는 403 이 아니라 **404** 입니다 —
+403 은 "그 id 는 실재한다"를 알려주는 답이기 때문입니다.
+
 | Method | Path | 상태 |
 |---|---|---|
+| GET | `/auth/config` | 구글 버튼을 그릴지 데모 버튼을 그릴지 |
+| GET | `/auth/me` | 현재 로그인 상태 (로그인 전이면 `user: null`) |
+| POST | `/auth/google` | 구글 ID 토큰 → 세션 쿠키 |
+| POST | `/auth/demo` | 데모 계정 (구글이 꺼져 있을 때만) |
+| POST | `/auth/logout` | 쿠키 삭제 |
+| GET | `/projects` | 내 로드맵 목록 |
 | POST | `/projects` | 목표 입력 → 생성 그래프 시작 |
 | GET | `/projects/{id}/stream` | SSE, 그래프 진행 상황 |
 | POST | `/projects/{id}/clarify` | clarify 응답 제출 |

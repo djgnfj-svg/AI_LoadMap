@@ -164,6 +164,12 @@ class CriticResult(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # API 입출력
 # ─────────────────────────────────────────────────────────────
+class GoogleLoginRequest(BaseModel):
+    """구글 로그인 버튼이 돌려준 ID 토큰. 서버가 구글에 진짜인지 확인한다."""
+
+    id_token: str = Field(min_length=1)
+
+
 class ProjectCreateRequest(BaseModel):
     goal_text: str = Field(min_length=5)
     # 사용자가 미리 아는 제약이 있으면 넣는다. 없으면 intake 가 추론하고 clarify 가 묻는다.

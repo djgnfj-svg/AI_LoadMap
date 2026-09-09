@@ -13,8 +13,10 @@ import asyncpg
 import pytest
 
 MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations"
+# .env·setup.sh·README 가 전부 5432 를 쓴다. 여기만 다르면 DB 테스트가 붙지도
+# 못한 채 전부 skip 으로 조용히 지나간다 — 통과한 것처럼 보이는 것이 더 나쁘다.
 ADMIN_DSN = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://postgres@127.0.0.1:55432/postgres"
+    "TEST_DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
 )
 
 

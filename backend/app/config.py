@@ -27,7 +27,17 @@ class Settings(BaseSettings):
     # SPEC §3.3 — critic 실패 시 decompose 재시도 상한
     critic_max_retries: int = 3
 
-    # SPEC §0.3 — 로그인은 자를 수 있는 항목. v1 은 데모 계정 고정.
+    # 로그인 (구글). 클라이언트 ID 가 없으면 데모 계정 로그인으로 대신한다 —
+    # API 키가 없으면 목업 Planner 로 도는 것과 같은 결이다.
+    google_client_id: str | None = None
+    # 세션 쿠키 서명 키. 비어 있으면 뜰 때마다 새로 만든다 (재시작하면 로그인이 풀린다).
+    session_secret: str | None = None
+    session_max_age_days: int = 30
+    # https 로 서비스할 때만 켠다. 로컬 http 에서 켜면 쿠키가 아예 안 실린다.
+    session_cookie_secure: bool = False
+
+    # 데모 계정. 0004 마이그레이션이 이 id 로 실제 행을 넣는다 — 값을 바꾸면
+    # 마이그레이션도 같이 바꿔야 한다.
     demo_user_id: str = "00000000-0000-0000-0000-000000000001"
 
     scheduler_enabled: bool = True
@@ -37,6 +47,16 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+
+    @property
+    def google_login_enabled(self) -> bool:
+        """클라이언트 ID 가 실제로 들어와 있는가.
+
+        구글 클라이언트 ID 는 `<숫자>-<해시>.apps.googleusercontent.com` 꼴이다.
+        .env.example 을 그대로 복사한 자리표시자를 진짜 값으로 착각하지 않는다.
+        """
+        cid = (self.google_client_id or "").strip()
+        return cid.endswith(".apps.googleusercontent.com") and "..." not in cid
 
     @property
     def has_real_api_key(self) -> bool:

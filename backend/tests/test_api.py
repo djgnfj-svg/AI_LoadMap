@@ -12,6 +12,8 @@ from tests.fakes import FakePlanner, make_decompose
 async def client(test_dsn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", test_dsn)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-used")
+    # 구글 클라이언트 ID 가 없어야 /auth/demo 가 열린다.
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     get_settings.cache_clear()
 
     from app.main import create_app
@@ -24,6 +26,8 @@ async def client(test_dsn, monkeypatch):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             c.app = app
+            # 모든 API 가 로그인을 요구한다 (0004). 쿠키는 클라이언트가 물고 있는다.
+            assert (await c.post("/auth/demo")).status_code == 200
             yield c
 
     get_settings.cache_clear()

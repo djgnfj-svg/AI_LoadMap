@@ -3,9 +3,9 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
-from app import db
+from app import auth, db
 from app.services import alerts as alert_service
 from app.services import detection
 
@@ -13,9 +13,14 @@ router = APIRouter(tags=["alerts"])
 
 
 @router.get("/projects/{project_id}/alerts")
-async def list_alerts(project_id: uuid.UUID, include_read: bool = False) -> dict:
+async def list_alerts(
+    project_id: uuid.UUID,
+    include_read: bool = False,
+    user=Depends(auth.current_user),  # noqa: ANN001
+) -> dict:
     """미확인 알람 목록. 강도 높은 것부터 (SPEC §2.3)."""
     async with db.acquire() as conn:
+        await auth.assert_owns_project(conn, project_id, user)
         rows = await conn.fetch(
             """
             select a.*, t.title as ticket_title, n.label as node_label,
@@ -49,10 +54,19 @@ async def list_alerts(project_id: uuid.UUID, include_read: bool = False) -> dict
 
 
 @router.post("/alerts/{alert_id}/ack")
-async def acknowledge(alert_id: uuid.UUID) -> dict:
+async def acknowledge(alert_id: uuid.UUID, user=Depends(auth.current_user)) -> dict:  # noqa: ANN001
     async with db.transaction() as conn:
+        # 알람은 프로젝트에 매달려 있다. 소유 확인을 update 조건에 함께 넣어,
+        # 남의 알람은 "없는 알람"으로 끝난다.
         row = await conn.fetchrow(
-            "update alerts set acknowledged = true where id = $1 returning id", alert_id
+            """
+            update alerts a set acknowledged = true
+              from projects p
+             where a.id = $1 and p.id = a.project_id and p.user_id = $2
+            returning a.id
+            """,
+            alert_id,
+            user["id"],
         )
     if row is None:
         raise HTTPException(404, "없는 알람이다.")
@@ -60,7 +74,11 @@ async def acknowledge(alert_id: uuid.UUID) -> dict:
 
 
 @router.post("/projects/{project_id}/detect")
-async def run_detection(project_id: uuid.UUID, today: str | None = Body(None, embed=True)) -> dict:
+async def run_detection(
+    project_id: uuid.UUID,
+    today: str | None = Body(None, embed=True),
+    user=Depends(auth.current_user),  # noqa: ANN001
+) -> dict:
     """스케줄러 작업을 즉시 한 번 돌린다 (SPEC §3.6).
 
     데모와 개발용이다. 운영에서는 APScheduler 가 정해진 시각에 돌린다.
@@ -68,6 +86,7 @@ async def run_detection(project_id: uuid.UUID, today: str | None = Body(None, em
     """
     day = date.fromisoformat(today) if today else None
     async with db.transaction() as conn:
+        await auth.assert_owns_project(conn, project_id, user)
         missed = await detection.record_missed_tickets(conn, day, project_id)
         created_reviews = await detection.ensure_review_days(conn, project_id, day)
         created_alerts = await alert_service.generate_alerts(conn, project_id, day)

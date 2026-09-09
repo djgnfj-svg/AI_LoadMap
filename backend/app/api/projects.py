@@ -3,11 +3,10 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
-from app import db
-from app.config import get_settings
+from app import auth, db
 from app.graphs.persist import create_project
 from app.models.schemas import ClarifyAnswerRequest, ProjectCreateRequest
 
@@ -20,21 +19,50 @@ def _known(req: ProjectCreateRequest) -> dict:
     return {f: getattr(req, f) for f in _KNOWN_FIELDS if getattr(req, f) is not None}
 
 
+@router.get("")
+async def list_projects(user=Depends(auth.current_user)) -> dict:  # noqa: ANN001
+    """내 프로젝트 목록. 로그인하면 제일 먼저 그리는 화면이다.
+
+    티켓 수와 완료 수를 같이 준다 — 목록에서 어느 것이 살아 있는지 보려면
+    프로젝트마다 상세를 한 번씩 부르게 할 수 없다.
+    """
+    async with db.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            select p.id, p.title, p.goal_text, p.status, p.start_date, p.created_at,
+                   count(t.id)                                       as ticket_count,
+                   count(t.id) filter (where t.status = 'resolved')  as resolved_count
+            from projects p
+            left join tickets t on t.project_id = p.id
+            where p.user_id = $1
+            group by p.id
+            order by p.created_at desc
+            """,
+            user["id"],
+        )
+    return {"projects": [_row(r) for r in rows]}
+
+
 @router.post("", status_code=201)
-async def create(req: ProjectCreateRequest, request: Request) -> dict:
+async def create(
+    req: ProjectCreateRequest, request: Request, user=Depends(auth.current_user)
+) -> dict:  # noqa: ANN001
     """목표 입력 -> 생성 그래프 시작. 진행 상황은 /projects/{id}/stream 에서 본다."""
-    settings = get_settings()
     async with db.transaction() as conn:
         project_id = await create_project(
-            conn, user_id=settings.demo_user_id, goal_text=req.goal_text
+            conn, user_id=str(user["id"]), goal_text=req.goal_text
         )
     request.app.state.runner.start(project_id, req.goal_text, _known(req))
     return {"project_id": str(project_id), "status": "running"}
 
 
 @router.get("/{project_id}/stream")
-async def stream(project_id: uuid.UUID, request: Request) -> EventSourceResponse:
+async def stream(
+    project_id: uuid.UUID, request: Request, user=Depends(auth.current_user)
+) -> EventSourceResponse:  # noqa: ANN001
     """SSE — 생성 그래프 진행 상황."""
+    async with db.acquire() as conn:
+        await auth.assert_owns_project(conn, project_id, user)
     run = request.app.state.runner.get(project_id)
     if run is None:
         raise HTTPException(404, "진행 중인 생성이 없다.")
@@ -55,9 +83,14 @@ async def stream(project_id: uuid.UUID, request: Request) -> EventSourceResponse
 
 @router.post("/{project_id}/clarify")
 async def clarify(
-    project_id: uuid.UUID, req: ClarifyAnswerRequest, request: Request
+    project_id: uuid.UUID,
+    req: ClarifyAnswerRequest,
+    request: Request,
+    user=Depends(auth.current_user),  # noqa: ANN001
 ) -> dict:
     """clarify 응답 제출 -> 같은 목표로 그래프를 다시 돌린다 (SPEC §0.3 — clarify 1회 고정)."""
+    async with db.acquire() as conn:
+        await auth.assert_owns_project(conn, project_id, user)
     runner = request.app.state.runner
     run = runner.get(project_id)
     if run is None:
@@ -69,11 +102,16 @@ async def clarify(
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: uuid.UUID, request: Request) -> dict:
+async def get_project(
+    project_id: uuid.UUID, request: Request, user=Depends(auth.current_user)
+) -> dict:  # noqa: ANN001
     """로드맵 + 아키텍처 전체 조회. 노드 상태는 §4.4 뷰에서 계산된 값을 쓴다."""
     async with db.acquire() as conn:
-        project = await conn.fetchrow("select * from projects where id = $1", project_id)
+        project = await conn.fetchrow(
+            "select * from projects where id = $1 and user_id = $2", project_id, user["id"]
+        )
         if project is None:
+            # 남의 프로젝트도 여기로 온다 — 있는지 없는지 알려 줄 이유가 없다.
             raise HTTPException(404, "없는 프로젝트다.")
 
         goals = await conn.fetch(

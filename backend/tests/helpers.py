@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import asyncpg
 
+from app.config import get_settings
 from app.graphs.persist import create_project, persist_plan
 from app.models.schemas import (
     Constraints,
@@ -89,7 +90,10 @@ async def seed_project(
 ) -> Seeded:
     draft = sample_draft(n_tickets)
     project_id = await create_project(
-        conn, user_id=None, goal_text="테스트 목표", start_date=start or date.today()
+        conn,
+        user_id=get_settings().demo_user_id,
+        goal_text="테스트 목표",
+        start_date=start or date.today(),
     )
     await persist_plan(
         conn,

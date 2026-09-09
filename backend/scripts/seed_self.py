@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import asyncpg  # noqa: E402
 
+from app.config import get_settings  # noqa: E402
 from app.graphs.critic import run_critic  # noqa: E402
 from app.graphs.persist import create_project, persist_plan  # noqa: E402
 from app.models.schemas import (  # noqa: E402
@@ -105,6 +106,18 @@ TICKETS = [
     ("t23", "m4", 2, "실제 프로젝트로 시드 + 검증", 90, ["events"], ["t18"], False, None),
     ("t24", "m4", 2, "배포 (공개 URL)", 120, ["deploy"], ["t22"], False, None),
     ("t25", "m4", 2, "데모 영상 3분 촬영·편집", 120, ["deploy"], ["t24"], False, None),
+    # 로그인 (§0.3 개정). 「로그인/세션」이라는 노드를 따로 두지 않고 실제로 손댄
+    # 컴포넌트에 나눠 단다 — 인증은 api 와 db 를 가로지르지, 옆에 붙는 상자가 아니다.
+    ("t26", "m5", 2, "구글 ID 토큰 검증 + 세션 쿠키", 90, ["api"], ["t03"], True, 3),
+    ("t27", "m5", 2, "users 테이블 + 프로젝트에 주인 붙이기", 60, ["db"], ["t01"], True, 3),
+    ("t28", "m5", 2, "모든 API 에 소유 확인", 90, ["api"], ["t26", "t27"], True, 3),
+    ("t29", "m5", 2, "로그인 화면 + 내 로드맵 목록", 90, ["goal_input", "board"], ["t28"], True, 3),
+    ("t30", "m5", 2, "구글 OAuth 클라이언트 ID 발급", 30, ["api"], ["t26"], False, None),
+    ("t31", "m5", 2, "SESSION_SECRET 채우기", 10, ["deploy"], ["t26"], False, None),
+    ("t32", "m6", 2, "SPEC §4 스키마를 0003·0004 에 맞춘다", 60, ["db"], ["t27"], False, None),
+    ("t33", "m6", 2, "ruff 10건 정리", 30, ["api"], [], False, None),
+    ("t34", "m6", 2, "dev.sh · setup.sh 가 이 PC 에서 돌게", 60, ["deploy"], [], False, None),
+    ("t35", "m6", 2, "테스트 DB 찌꺼기 정리", 20, ["db"], [], False, None),
 ]
 
 # 주가 관리 단위다. 2 주짜리 계획이라 주는 둘뿐이고, 그 안에 태스크가 산다.
@@ -119,6 +132,8 @@ TASKS = [
     ("m2", "w1", 2, "계획이 화면에서 보인다", "티켓 보드 · 다이어그램 · 연동 (D4~D6)"),
     ("m3", "w2", 3, "감지와 재설계", "이벤트 · 알람 · 재점검 · 재설계 (D7~D9)"),
     ("m4", "w2", 4, "내보내고 제출한다", "시드 · 배포 · 영상 (D10~D14)"),
+    ("m5", "w2", 5, "로그인과 계정", "데모 계정 고정을 걷어내고 구글 로그인 (SPEC §0.3 개정)"),
+    ("m6", "w2", 6, "기준 문서와 잔여 정리", "코드가 앞서가고 문서·도구가 뒤에 남은 자리들"),
 ]
 
 
@@ -201,7 +216,11 @@ async def main() -> None:
                 print(f"기존 시드 삭제: {deleted}")
 
             project_id = await create_project(
-                conn, user_id=None, goal_text=GOAL, title=TITLE, start_date=START
+                conn,
+                user_id=get_settings().demo_user_id,
+                goal_text=GOAL,
+                title=TITLE,
+                start_date=START,
             )
             await persist_plan(
                 conn,

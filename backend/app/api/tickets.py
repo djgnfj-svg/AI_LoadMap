@@ -11,9 +11,9 @@ parked 는 접힘(의도적으로 미룸)이지 막힘이 아니다. 막혔다�
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
-from app import db
+from app import auth, db
 from app.models.schemas import TicketPatchRequest
 from app.services.events import record_event
 from app.services.node_status import sync_node_status
@@ -32,11 +32,22 @@ _TRANSITIONS: dict[str, tuple[str | None, str]] = {
 
 
 @router.patch("/{ticket_id}")
-async def patch_ticket(ticket_id: uuid.UUID, req: TicketPatchRequest) -> dict:
+async def patch_ticket(
+    ticket_id: uuid.UUID, req: TicketPatchRequest, user=Depends(auth.current_user)
+) -> dict:  # noqa: ANN001
     next_status, event_type = _TRANSITIONS[req.action]
 
     async with db.transaction() as conn:
-        ticket = await conn.fetchrow("select * from tickets where id = $1", ticket_id)
+        # 소유 확인을 조회 조건에 함께 건다 — 남의 티켓은 "없는 티켓"으로 끝난다.
+        ticket = await conn.fetchrow(
+            """
+            select t.* from tickets t
+            join projects p on p.id = t.project_id
+            where t.id = $1 and p.user_id = $2
+            """,
+            ticket_id,
+            user["id"],
+        )
         if ticket is None:
             raise HTTPException(404, "없는 티켓이다.")
         project_id = ticket["project_id"]
@@ -107,6 +118,12 @@ async def patch_ticket(ticket_id: uuid.UUID, req: TicketPatchRequest) -> dict:
 
 
 @router.post("/{ticket_id}/block")
-async def block_ticket(ticket_id: uuid.UUID, reason: str = Body(..., embed=True)) -> dict:
+async def block_ticket(
+    ticket_id: uuid.UUID,
+    reason: str = Body(..., embed=True),
+    user=Depends(auth.current_user),  # noqa: ANN001
+) -> dict:
     """막힘 사유 한 줄 입력 (SPEC §2.3 — 마감 24시간 경과 알람의 응답)."""
-    return await patch_ticket(ticket_id, TicketPatchRequest(action="block", reason=reason))
+    return await patch_ticket(
+        ticket_id, TicketPatchRequest(action="block", reason=reason), user
+    )

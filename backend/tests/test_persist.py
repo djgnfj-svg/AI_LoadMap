@@ -6,6 +6,7 @@ from datetime import date
 import asyncpg
 import pytest
 
+from app.config import get_settings
 from app.graphs.persist import create_project, layout_positions, persist_plan
 from app.models.schemas import Constraints, PlanDraft
 from tests.fakes import ARCHITECT, make_decompose, make_links
@@ -30,7 +31,7 @@ def sample_draft() -> PlanDraft:
 
 async def save(conn) -> uuid.UUID:
     project_id = await create_project(
-        conn, user_id=None, goal_text="테스트 목표", start_date=START
+        conn, user_id=get_settings().demo_user_id, goal_text="테스트 목표", start_date=START
     )
     await persist_plan(
         conn,

@@ -42,7 +42,7 @@ def _week_end(start: date, week_index: int) -> date:
 async def create_project(
     conn: asyncpg.Connection,
     *,
-    user_id: str | None,
+    user_id: str,
     goal_text: str,
     title: str = "(생성 중)",
     constraints: Constraints | None = None,
@@ -52,6 +52,8 @@ async def create_project(
 
     생성 그래프가 돌기 전에 id 가 있어야 /projects/{id}/stream 과 /projects/{id}/clarify
     (SPEC §3.5) 가 성립한다. 트리는 emit 에서 persist_plan 이 채운다.
+
+    ⚠ 주인 없는 프로젝트는 만들 수 없다 (0004). 로그인한 사람 것이거나 데모 계정 것이다.
     """
     return await conn.fetchval(
         """
@@ -59,7 +61,7 @@ async def create_project(
         values ($1, $2, $3, $4, $5)
         returning id
         """,
-        uuid.UUID(user_id) if user_id else None,
+        uuid.UUID(user_id),
         title,
         goal_text,
         (constraints.model_dump() if constraints else {}),

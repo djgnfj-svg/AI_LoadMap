@@ -120,6 +120,49 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// ─────────────────────────────────────────────────────────────
+// 로그인
+// ─────────────────────────────────────────────────────────────
+export interface User {
+  id: string;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
+export interface AuthConfig {
+  google_enabled: boolean;
+  /** 구글 버튼을 그리는 데 필요한 공개값. 꺼져 있으면 null. */
+  google_client_id: string | null;
+  /** 구글이 설정돼 있지 않을 때만 열리는 문. */
+  demo_login: boolean;
+}
+
+export const authApi = {
+  config: () => request<AuthConfig>("/auth/config"),
+  /** 로그인 안 된 것은 오류가 아니라 답이다 — user 가 null 로 온다. */
+  me: () => request<{ user: User | null }>("/auth/me"),
+  google: (idToken: string) =>
+    request<{ user: User }>("/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ id_token: idToken }),
+    }),
+  demo: () => request<{ user: User }>("/auth/demo", { method: "POST" }),
+  logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+};
+
+/** 목록 화면 한 줄. 상세를 부르지 않고도 진행 정도가 보이게 숫자를 같이 받는다. */
+export interface ProjectSummary {
+  id: string;
+  title: string;
+  goal_text: string;
+  status: string;
+  start_date: string;
+  created_at: string;
+  ticket_count: number;
+  resolved_count: number;
+}
+
 export interface CreateProjectBody {
   goal_text: string;
   duration_weeks?: number;
@@ -130,6 +173,8 @@ export interface CreateProjectBody {
 }
 
 export const api = {
+  listProjects: () => request<{ projects: ProjectSummary[] }>("/projects"),
+
   createProject: (body: CreateProjectBody) =>
     request<{ project_id: string; status: string }>("/projects", {
       method: "POST",

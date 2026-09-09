@@ -5,9 +5,10 @@ import { api, streamGeneration, type ClarifyQuestion, type StepEvent } from "../
 
 interface Props {
   onCreated: (projectId: string) => void;
+  onBack: () => void;
 }
 
-export function GoalInput({ onCreated }: Props) {
+export function GoalInput({ onCreated, onBack }: Props) {
   const [goal, setGoal] = useState("");
   const [weeks, setWeeks] = useState("");
   const [hours, setHours] = useState("");
@@ -78,9 +79,12 @@ export function GoalInput({ onCreated }: Props) {
 
   return (
     <div className="goal-screen">
+      <button className="ghost back" onClick={onBack}>
+        ← 내 로드맵
+      </button>
       <h1>무엇을 만들 건가요?</h1>
       <p className="lede">
-        목표를 적으면 마일스톤 · 주차별 목표 · 티켓으로 쪼개고, 시스템 아키텍처를 같이 그립니다.
+        목표를 적으면 주 · 태스크 · 티켓으로 쪼개고, 시스템 아키텍처를 같이 그립니다.
       </p>
 
       <textarea

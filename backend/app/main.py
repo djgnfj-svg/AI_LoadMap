@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
-from app.api import alerts, projects, reviews, tickets
+from app.api import alerts, auth, projects, reviews, tickets
 from app.config import get_settings
 from app.graphs.replan_graph import build_replan_graph
 from app.scheduler import build_scheduler
@@ -74,6 +74,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.include_router(auth.router)
     app.include_router(projects.router)
     app.include_router(tickets.router)
     app.include_router(alerts.router)

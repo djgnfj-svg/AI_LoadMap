@@ -10,9 +10,9 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
-from app import db
+from app import auth, db
 from app.models.schemas import ReplanApplyRequest, ReplanChange, ReplanDiff
 from app.services.replan_apply import apply_changes
 from app.services.replan_context import load_replan_context
@@ -20,10 +20,26 @@ from app.services.replan_context import load_replan_context
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 
+async def _assert_owns_review(conn, review_day_id: uuid.UUID, user) -> None:  # noqa: ANN001
+    """재점검일은 프로젝트에 매달려 있다. 남의 것이면 "없는 재점검일"이다."""
+    owned = await conn.fetchval(
+        """
+        select 1 from review_days r
+        join projects p on p.id = r.project_id
+        where r.id = $1 and p.user_id = $2
+        """,
+        review_day_id,
+        user["id"],
+    )
+    if not owned:
+        raise HTTPException(404, "없는 재점검일이다.")
+
+
 @router.get("/{review_day_id}")
-async def get_review(review_day_id: uuid.UUID) -> dict:
+async def get_review(review_day_id: uuid.UUID, user=Depends(auth.current_user)) -> dict:  # noqa: ANN001
     """재점검 세션 조회. 아직 안 돌렸으면 집계 숫자만 돌려준다 (§2.4 1단계)."""
     async with db.acquire() as conn:
+        await _assert_owns_review(conn, review_day_id, user)
         try:
             ctx = await load_replan_context(conn, review_day_id)
         except LookupError as exc:
@@ -52,10 +68,13 @@ async def get_review(review_day_id: uuid.UUID) -> dict:
 
 
 @router.post("/{review_day_id}/run")
-async def run_review(review_day_id: uuid.UUID, request: Request) -> dict:
+async def run_review(
+    review_day_id: uuid.UUID, request: Request, user=Depends(auth.current_user)
+) -> dict:  # noqa: ANN001
     """재설계 그래프 실행 (SPEC §3.4). 결과는 승인 대기 상태로 저장된다."""
     graph = request.app.state.replan_graph
     async with db.transaction() as conn:
+        await _assert_owns_review(conn, review_day_id, user)
         try:
             ctx = await load_replan_context(conn, review_day_id)
         except LookupError as exc:
@@ -85,9 +104,12 @@ async def run_review(review_day_id: uuid.UUID, request: Request) -> dict:
 
 
 @router.post("/{review_day_id}/apply")
-async def apply_review(review_day_id: uuid.UUID, req: ReplanApplyRequest) -> dict:
+async def apply_review(
+    review_day_id: uuid.UUID, req: ReplanApplyRequest, user=Depends(auth.current_user)
+) -> dict:  # noqa: ANN001
     """diff 항목별 승인/거절 (§2.4 4단계). 승인한 것만 계획에 들어간다."""
     async with db.transaction() as conn:
+        await _assert_owns_review(conn, review_day_id, user)
         session = await conn.fetchrow(
             "select * from replan_sessions where review_day_id = $1 and applied = false "
             "order by created_at desc limit 1",
@@ -129,13 +151,18 @@ async def apply_review(review_day_id: uuid.UUID, req: ReplanApplyRequest) -> dic
 
 
 @router.patch("/{review_day_id}")
-async def postpone(review_day_id: uuid.UUID, scheduled_date: str = Body(..., embed=True)) -> dict:
+async def postpone(
+    review_day_id: uuid.UUID,
+    scheduled_date: str = Body(..., embed=True),
+    user=Depends(auth.current_user),  # noqa: ANN001
+) -> dict:
     """날짜 변경만 가능하다. 삭제는 없다 (§2.4).
 
     미룬 사실도 기록한다 — 재점검일을 계속 미루는 것 자체가 신호다.
     """
     new_date = date.fromisoformat(scheduled_date)
     async with db.transaction() as conn:
+        await _assert_owns_review(conn, review_day_id, user)
         row = await conn.fetchrow(
             """
             update review_days
