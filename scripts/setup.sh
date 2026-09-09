@@ -51,11 +51,14 @@ if [ ! -d .venv ]; then
     python3 -m venv .venv
   fi
 fi
+# venv 실행 파일 위치: POSIX 는 bin/, Windows(Git Bash) 는 Scripts/
+VENV_BIN=bin
+if [ -d .venv/Scripts ]; then VENV_BIN=Scripts; fi
 if command -v uv >/dev/null 2>&1; then
   VIRTUAL_ENV=.venv uv pip install -q -e ".[dev]"
 else
-  ./.venv/bin/pip install -q --upgrade pip
-  ./.venv/bin/pip install -q -e ".[dev]"
+  "./.venv/$VENV_BIN/pip" install -q --upgrade pip
+  "./.venv/$VENV_BIN/pip" install -q -e ".[dev]"
 fi
 echo "  ✓ backend/.venv"
 
@@ -78,7 +81,9 @@ if [ "${1:-}" = "--seed" ] || [ "${1:-}" = "--seed-demo" ]; then
   cd "$ROOT/backend"
   ARGS="--reset"
   [ "${1:-}" = "--seed-demo" ] && ARGS="--reset --demo-history"
-  DATABASE_URL="$DATABASE_URL" ./.venv/bin/python scripts/seed_self.py $ARGS
+  VENV_BIN=bin
+  if [ -d .venv/Scripts ]; then VENV_BIN=Scripts; fi
+  DATABASE_URL="$DATABASE_URL" "./.venv/$VENV_BIN/python" scripts/seed_self.py $ARGS
 fi
 
 say "끝났습니다"
