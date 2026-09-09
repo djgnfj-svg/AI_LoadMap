@@ -78,6 +78,7 @@ backend/
 | R4 `missed`는 이벤트 | `defer` 는 `delay_count` 만 올리고 `status` 는 유지. 같은 마감일에 두 번 기록하지 않는다 |
 | R5 알람은 진단 | "netcode 쪽에서 3번 멈췄어요. 다시 짤까요?" — 문구가 기능이다 |
 | 청사진 커버리지 | 사용자가 말한 완성 기준을 어느 주도 안 맡으면 `critic.py` 가 다시 쪼개게 한다 (집합 연산, LLM 미개입) |
+| 티켓 본문 | 완료 조건 2개 이상 + 확인 가능한 서술을 `critic.py` 가 검사한다. 못 채우면 `repair.py` 가 `(확인 필요)` 로 채우고 밝힌다 |
 
 ## 시작하기
 
@@ -149,7 +150,7 @@ cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 144개
+.venv/bin/python -m pytest -q          # 154개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend

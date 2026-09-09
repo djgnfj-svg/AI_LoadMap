@@ -294,3 +294,15 @@ async def test_기준을_끝내_못_맡으면_복구가_마지막_주로_모은�
 
     assert result["critic"].ok
     assert any("확인이 필요하다" in n for n in result["repairs"])
+
+
+async def test_완료_조건이_부실하면_다시_쪼갠다():
+    """§2.2 본문 형식을 프롬프트만 요구하고 검사하지 않으면 지켜지지 않는다."""
+    weak = make_decompose()
+    for t in weak.tickets:
+        t.body = "## 무엇을\n한 문장\n"
+    planner = FakePlanner(decompose_results=[weak, make_decompose()])
+    result = await run(planner)
+
+    assert decompose_calls(planner) == 2
+    assert result["critic"].ok

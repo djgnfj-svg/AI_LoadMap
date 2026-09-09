@@ -16,6 +16,9 @@ from app.models.schemas import (
     SuccessCriterion,
 )
 
+# 완료 조건 2개짜리 최소 본문 (§2.2). critic 이 본문도 보기 때문에 필요하다.
+BODY = "## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 3개 통과\n- [ ] 빌드 성공\n"
+
 CONSTRAINTS = Constraints(
     duration_weeks=4, hours_per_week=10, level="intermediate", stack=["fastapi"], team_size=1
 )
@@ -28,11 +31,11 @@ def broken_draft() -> PlanDraft:
         weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1, title="인증 구현",
-                        body="b", est_minutes=300, depends_on=["t2"]),
+                        body=BODY, est_minutes=300, depends_on=["t2"]),
             DraftTicket(key="t2", task_key="k1", ticket_number=2, title="DB 설계",
-                        body="b", est_minutes=200, depends_on=["t1"]),
+                        body=BODY, est_minutes=200, depends_on=["t1"]),
             DraftTicket(key="t3", task_key="k1", ticket_number=3, title="라우터",
-                        body="b", est_minutes=90, depends_on=["없는티켓"]),
+                        body=BODY, est_minutes=90, depends_on=["없는티켓"]),
         ],
         nodes=[
             DraftNode(node_key="auth", label="Auth", node_type="service", layer="backend"),
@@ -100,7 +103,7 @@ def test_가용시간_초과분은_다음_주차로_이월된다():
         weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
         tickets=[
             DraftTicket(key=f"t{i}", task_key="k1", ticket_number=i, title=f"T{i}",
-                        body="b", est_minutes=60, depends_on=[])
+                        body=BODY, est_minutes=60, depends_on=[])
             for i in range(1, 5)
         ],
         nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],
@@ -124,7 +127,7 @@ def test_해소_불가능한_주차는_포기하고_사유를_남긴다():
         weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1, title="T",
-                        body="b", est_minutes=120, depends_on=[])
+                        body=BODY, est_minutes=120, depends_on=[])
         ],
         nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],
         links=[DraftLink(ticket_key="t1", node_key="api")],
@@ -161,9 +164,9 @@ def _with_blueprint() -> PlanDraft:
         ],
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1, title="T1",
-                        body="b", est_minutes=60, depends_on=[]),
+                        body=BODY, est_minutes=60, depends_on=[]),
             DraftTicket(key="t2", task_key="k2", ticket_number=1, title="T2",
-                        body="b", est_minutes=60, depends_on=[]),
+                        body=BODY, est_minutes=60, depends_on=[]),
         ],
         nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],
         links=[DraftLink(ticket_key="t1", node_key="api"),
@@ -180,3 +183,35 @@ def test_안_맡은_완성_기준은_마지막_주로_모으고_밝힌다():
     assert "sc9" not in last.covers  # 없는 기준을 가리키던 참조는 털어낸다
     assert any("확인이 필요하다" in n for n in notes)
     assert run_critic(fixed, CONSTRAINTS).ok
+
+
+def test_완료_조건이_없으면_확인_항목을_채우고_밝힌다():
+    """지어낸 조건임을 숨기지 않는다 — 사용자가 고쳐 쓸 자리를 남긴다."""
+    d = draft_of(body="## 무엇을\n로그인을 붙인다\n")
+    fixed, notes = repair_draft(d, CONSTRAINTS)
+
+    assert run_critic(fixed, CONSTRAINTS).ok
+    assert "(확인 필요)" in fixed.tickets[0].body
+    assert "로그인을 붙인다" in fixed.tickets[0].body  # 원래 쓴 것은 지우지 않는다
+    assert any("확인 항목을 채웠다" in n for n in notes)
+
+
+def test_쓸_만한_조건은_남기고_모자란_것만_채운다():
+    d = draft_of(body="## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 3개 통과\n")
+    fixed, _ = repair_draft(d, CONSTRAINTS)
+
+    assert "테스트 3개 통과" in fixed.tickets[0].body
+    assert run_critic(fixed, CONSTRAINTS).ok
+
+
+def draft_of(*, body: str) -> PlanDraft:
+    return PlanDraft(
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
+        tasks=[DraftTask(key="k1", weekly_goal_key="w1", task_number=1, title="A", description="")],
+        tickets=[
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="로그인",
+                        body=body, est_minutes=60, depends_on=[])
+        ],
+        nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],
+        links=[DraftLink(ticket_key="t1", node_key="api")],
+    )

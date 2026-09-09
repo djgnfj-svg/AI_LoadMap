@@ -168,7 +168,14 @@ def build_replan_graph(planner: Planner, max_retries: int | None = None):
 
     # ── critic (생성 그래프와 동일) ────────────────────────────
     async def critic_node(state: ReplanState) -> dict:
-        return {"critic": run_critic(state["merged_draft"], state["context"].constraints)}
+        # 본문 검증은 끈다 — 이 초안에는 규칙이 생기기 전에 쓰인 기존 티켓이 그대로
+        # 실려 있고, 그건 이번 재설계가 고칠 대상이 아니다. 새로 만드는 티켓의
+        # 본문 형식은 replan.py 가 맞춘다.
+        return {
+            "critic": run_critic(
+                state["merged_draft"], state["context"].constraints, check_bodies=False
+            )
+        }
 
     def after_critic(state: ReplanState) -> str:
         critic = state.get("critic")

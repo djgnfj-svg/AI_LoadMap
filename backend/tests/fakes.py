@@ -58,7 +58,10 @@ def make_decompose(
                 # 번호는 태스크마다 1 부터 다시 센다
                 ticket_number=i if i <= n_tickets // 2 else i - n_tickets // 2,
                 title=f"티켓 {i}",
-                body="## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 통과\n",
+                body=(
+                    "## 무엇을\n한 문장\n\n"
+                    "## 완료 조건\n- [ ] 테스트 3개 통과\n- [ ] 빌드 성공\n"
+                ),
                 est_minutes=est_minutes,
                 depends_on=[f"t{i - 1}"] if i > 1 else [],
             )

@@ -16,6 +16,9 @@ from app.models.schemas import (
     SuccessCriterion,
 )
 
+# 완료 조건 2개짜리 최소 본문 (§2.2). critic 이 본문도 보기 때문에 필요하다.
+BODY = "## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 3개 통과\n- [ ] 빌드 성공\n"
+
 CONSTRAINTS = Constraints(
     duration_weeks=4, hours_per_week=10, level="intermediate", stack=["fastapi"], team_size=1
 )
@@ -28,7 +31,7 @@ def draft(**overrides) -> PlanDraft:
         tickets=[
             DraftTicket(
                 key="t1", task_key="k1", ticket_number=1,
-                title="T", body="b", est_minutes=90, depends_on=[],
+                title="T", body=BODY, est_minutes=90, depends_on=[],
             )
         ],
         nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],
@@ -57,7 +60,7 @@ def test_R1_120분_초과_티켓을_잡는다():
     d = draft(
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1,
-                        title="인증 구현", body="b", est_minutes=121, depends_on=[])
+                        title="인증 구현", body=BODY, est_minutes=121, depends_on=[])
         ]
     )
     result = run_critic(d, CONSTRAINTS)
@@ -70,7 +73,7 @@ def test_정확히_120분은_통과():
     d = draft(
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1,
-                        title="T", body="b", est_minutes=120, depends_on=[])
+                        title="T", body=BODY, est_minutes=120, depends_on=[])
         ]
     )
     assert "ticket_over_120min" not in codes(d)
@@ -80,9 +83,9 @@ def test_의존성_순환을_잡는다():
     d = draft(
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1,
-                        title="A", body="b", est_minutes=60, depends_on=["t2"]),
+                        title="A", body=BODY, est_minutes=60, depends_on=["t2"]),
             DraftTicket(key="t2", task_key="k1", ticket_number=2,
-                        title="B", body="b", est_minutes=60, depends_on=["t1"]),
+                        title="B", body=BODY, est_minutes=60, depends_on=["t1"]),
         ],
         links=[
             DraftLink(ticket_key="t1", node_key="api"),
@@ -96,7 +99,7 @@ def test_긴_순환도_잡는다():
     d = draft(
         tickets=[
             DraftTicket(key=k, task_key="k1", ticket_number=i, title=k,
-                        body="b", est_minutes=30, depends_on=[dep])
+                        body=BODY, est_minutes=30, depends_on=[dep])
             for i, (k, dep) in enumerate([("t1", "t3"), ("t2", "t1"), ("t3", "t2")], start=1)
         ],
         links=[DraftLink(ticket_key=f"t{i}", node_key="api") for i in (1, 2, 3)],
@@ -108,13 +111,13 @@ def test_순환이_아닌_다이아몬드_의존은_통과():
     d = draft(
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
-                        body="b", est_minutes=30, depends_on=[]),
+                        body=BODY, est_minutes=30, depends_on=[]),
             DraftTicket(key="t2", task_key="k1", ticket_number=2, title="B",
-                        body="b", est_minutes=30, depends_on=["t1"]),
+                        body=BODY, est_minutes=30, depends_on=["t1"]),
             DraftTicket(key="t3", task_key="k1", ticket_number=3, title="C",
-                        body="b", est_minutes=30, depends_on=["t1"]),
+                        body=BODY, est_minutes=30, depends_on=["t1"]),
             DraftTicket(key="t4", task_key="k1", ticket_number=4, title="D",
-                        body="b", est_minutes=30, depends_on=["t2", "t3"]),
+                        body=BODY, est_minutes=30, depends_on=["t2", "t3"]),
         ],
         links=[DraftLink(ticket_key=f"t{i}", node_key="api") for i in range(1, 5)],
     )
@@ -128,9 +131,9 @@ def test_주간_가용시간_초과를_잡는다():
     d = draft(
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
-                        body="b", est_minutes=90, depends_on=[]),
+                        body=BODY, est_minutes=90, depends_on=[]),
             DraftTicket(key="t2", task_key="k1", ticket_number=2, title="B",
-                        body="b", est_minutes=90, depends_on=[]),
+                        body=BODY, est_minutes=90, depends_on=[]),
         ],
         links=[
             DraftLink(ticket_key="t1", node_key="api"),
@@ -157,9 +160,9 @@ def test_노드에_안_붙은_티켓을_잡는다():
     d = draft(
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
-                        body="b", est_minutes=30, depends_on=[]),
+                        body=BODY, est_minutes=30, depends_on=[]),
             DraftTicket(key="t2", task_key="k1", ticket_number=2, title="B",
-                        body="b", est_minutes=30, depends_on=[]),
+                        body=BODY, est_minutes=30, depends_on=[]),
         ]
     )
     violation = next(
@@ -201,9 +204,9 @@ def test_중복_키를_잡는다():
     d = draft(
         tickets=[
             DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
-                        body="b", est_minutes=30, depends_on=[]),
+                        body=BODY, est_minutes=30, depends_on=[]),
             DraftTicket(key="t1", task_key="k1", ticket_number=2, title="B",
-                        body="b", est_minutes=30, depends_on=[]),
+                        body=BODY, est_minutes=30, depends_on=[]),
         ]
     )
     assert "duplicate_key" in codes(d)
@@ -252,3 +255,47 @@ def test_기준이_없으면_커버리지를_따지지_않는다():
     """인터뷰를 전부 건너뛴 경우다. 없는 기준을 지어내 강요하지 않는다."""
     d = draft(weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")])
     assert codes(d) == set()
+
+
+# ── 티켓 본문 (§2.2) ───────────────────────────────────────────
+def ticket(body: str) -> PlanDraft:
+    return draft(
+        tickets=[
+            DraftTicket(key="t1", task_key="k1", ticket_number=1,
+                        title="T", body=body, est_minutes=90, depends_on=[])
+        ]
+    )
+
+
+def test_완료_조건이_없는_본문은_걸린다():
+    """검사하지 않는 요구는 지켜지지 않는다. 프롬프트만으로는 부족하다."""
+    assert "weak_ticket_body" in codes(ticket("## 무엇을\n로그인을 붙인다\n"))
+
+
+def test_완료_조건이_하나뿐이어도_걸린다():
+    body = "## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 3개 통과\n"
+    assert "weak_ticket_body" in codes(ticket(body))
+
+
+def test_확인할_수_없는_완료_조건은_걸린다():
+    body = "## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 3개 통과\n- [ ] 잘 동작한다\n"
+    assert "weak_ticket_body" in codes(ticket(body))
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        ["테스트 3개 통과", "빌드 성공"],
+        ["응답 200", "친구 4명이 같은 방에 들어온다"],
+        ["`pytest -q` 가 통과한다", "화면에 목록이 뜬다"],
+    ],
+)
+def test_확인할_수_있는_조건은_통과한다(items):
+    body = "## 무엇을\n한 문장\n\n## 완료 조건\n" + "".join(f"- [ ] {i}\n" for i in items)
+    assert "weak_ticket_body" not in codes(ticket(body))
+
+
+def test_본문_검증은_끌_수_있다():
+    """재설계 초안에는 이 규칙이 생기기 전에 쓰인 기존 티켓이 실려 있다."""
+    result = run_critic(ticket("본문 없음"), CONSTRAINTS, check_bodies=False)
+    assert "weak_ticket_body" not in {v.code for v in result.violations}

@@ -19,6 +19,21 @@ from app.models.schemas import (
     ReplanChange,
 )
 
+
+def _stub_body(title: str) -> str:
+    """LLM 이 본문을 비워 보냈을 때 채우는 최소 형식 (SPEC §2.2).
+
+    완료 조건 없는 티켓은 「끝났는지」를 사용자가 판단할 수 없다. 지어낸 조건임을
+    숨기지 않으려고 (확인 필요) 를 붙인다.
+    """
+    return (
+        f"## 무엇을\n{title}\n\n"
+        "## 완료 조건\n"
+        f"- [ ] (확인 필요) {title} 의 결과를 직접 실행해 확인한다\n"
+        "- [ ] (확인 필요) 관련 테스트 또는 빌드가 통과한다\n"
+    )
+
+
 # 적용 순서. 쪼개고 줄이고 지운 뒤에 더하고, 마지막에 일정을 민다.
 _ORDER = {
     "split_ticket": 0,
@@ -118,7 +133,7 @@ def build_changes(
                     op={
                         "ticket_id": target["id"],
                         "title": p.title,
-                        "body": p.body,
+                        "body": p.body or _stub_body(p.title),
                         "est_minutes": p.est_minutes,
                     },
                 )
@@ -164,7 +179,7 @@ def build_changes(
                         "new_ticket_id": new_id,
                         "task_id": task_id,
                         "title": p.title,
-                        "body": p.body or f"## 무엇을\n{p.title}\n",
+                        "body": p.body or _stub_body(p.title),
                         "est_minutes": p.est_minutes,
                         # 추가한 티켓은 원래 막힌 티켓 앞에 온다.
                         "blocks_ticket_id": target["id"] if target else None,

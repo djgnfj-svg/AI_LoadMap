@@ -17,6 +17,13 @@ AI 는 여기 개입하지 않는다. 무엇을 고쳤는지는 전부 문자열
 import math
 from collections import Counter, defaultdict
 
+from app.graphs.critic import (
+    CRITERIA_HEADING,
+    MIN_ACCEPTANCE_CRITERIA,
+    NEXT_HEADING,
+    acceptance_criteria,
+    weak_criteria,
+)
 from app.models.schemas import (
     MAX_TICKET_MINUTES,
     Constraints,
@@ -48,6 +55,8 @@ def repair_draft(draft: PlanDraft, constraints: Constraints) -> tuple[PlanDraft,
     d, n = _link_unlinked_tickets(d)
     notes += n
     d, n = _cover_criteria(d)
+    notes += n
+    d, n = _fix_weak_bodies(d)
     notes += n
     _renumber(d)
 
@@ -412,6 +421,51 @@ def _cover_criteria(d: PlanDraft) -> tuple[PlanDraft, list[str]]:
         f"어느 주에도 안 들어간 완성 기준 {len(missing)}개를 마지막 주({last.week_index}주차)로 "
         f"모았다 — 확인이 필요하다: {detail}"
     ]
+
+
+def _fix_weak_bodies(d: PlanDraft) -> tuple[PlanDraft, list[str]]:
+    """완료 조건이 없거나 확인할 수 없는 본문에 형식을 채워 넣는다.
+
+    ⚠ 여기서 넣는 조건은 **지어낸 것**이다. LLM 이 세 번 다 못 쓴 자리라 비워 둘
+    수는 없고(그러면 끝났는지를 판단할 수 없다), 지어낸 티를 지우지도 않는다 —
+    (확인 필요) 를 붙여 사용자가 고쳐 쓰게 한다.
+    """
+    fixed = 0
+    for t in d.tickets:
+        items = [i for i in acceptance_criteria(t.body) if i not in weak_criteria(t.body)]
+        if len(items) >= MIN_ACCEPTANCE_CRITERIA:
+            continue
+        kept = "\n".join(f"- [ ] {i}" for i in items)
+        stub = [
+            f"- [ ] (확인 필요) {t.title} 의 결과를 직접 실행해 확인한다",
+            "- [ ] (확인 필요) 관련 테스트 또는 빌드가 통과한다",
+        ][: MIN_ACCEPTANCE_CRITERIA - len(items)]
+        head = _strip_criteria(t.body).rstrip()
+        t.body = (
+            f"{head}\n\n## 완료 조건\n" + ("\n".join([kept, *stub]) if kept else "\n".join(stub))
+        ).strip() + "\n"
+        fixed += 1
+    if not fixed:
+        return d, []
+    return d, [
+        f"완료 조건이 비어 있던 티켓 {fixed}개에 확인 항목을 채웠다 "
+        "— (확인 필요) 로 표시했으니 직접 고쳐 쓰는 게 좋다"
+    ]
+
+
+def _strip_criteria(body: str) -> str:
+    """본문에서 「완료 조건」 섹션만 걷어낸다. 나머지 절은 그대로 둔다."""
+    out: list[str] = []
+    skipping = False
+    for line in (body or "").splitlines():
+        if CRITERIA_HEADING.match(line):
+            skipping = True
+            continue
+        if skipping and NEXT_HEADING.match(line):
+            skipping = False
+        if not skipping:
+            out.append(line)
+    return "\n".join(out) or "## 무엇을\n(내용 없음)"
 
 
 def _renumber(d: PlanDraft) -> None:

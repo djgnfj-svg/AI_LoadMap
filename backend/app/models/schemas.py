@@ -182,6 +182,7 @@ class PlanDraft(BaseModel):
 ViolationCode = Literal[
     "ticket_over_120min",  # R1
     "uncovered_criterion",  # 청사진의 기준을 어느 주도 맡지 않는다
+    "weak_ticket_body",     # 완료 조건이 없거나 확인할 수 없다
     "dependency_cycle",
     "weekly_overload",
     "orphan_node",

@@ -132,7 +132,7 @@ def test_분할을_초안에_적용하면_critic_을_통과한다():
     merged = apply_to_draft(draft, changes)
 
     assert len(merged.tickets) == len(draft.tickets) + 1
-    assert run_critic(merged, CONSTRAINTS).ok
+    assert run_critic(merged, CONSTRAINTS, check_bodies=False).ok
     # 조각은 원래 티켓의 노드를 승계한다
     new_key = changes[0].op["new_ticket_ids"][0]
     assert any(link.ticket_key == new_key and link.node_key == "node_a" for link in merged.links)
@@ -151,7 +151,7 @@ def test_티켓_추가는_막힌_티켓_앞에_놓인다():
     new_key = changes[0].op["new_ticket_id"]
     blocked = next(t for t in merged.tickets if t.key == target.key)
     assert new_key in blocked.depends_on
-    assert run_critic(merged, CONSTRAINTS).ok
+    assert run_critic(merged, CONSTRAINTS, check_bodies=False).ok
 
 
 def test_티켓_제거는_그를_가리키던_의존도_함께_지운다():
@@ -163,4 +163,4 @@ def test_티켓_제거는_그를_가리키던_의존도_함께_지운다():
 
     assert all(t.key != dropped.key for t in merged.tickets)
     assert all(dropped.key not in t.depends_on for t in merged.tickets)
-    assert run_critic(merged, CONSTRAINTS).ok
+    assert run_critic(merged, CONSTRAINTS, check_bodies=False).ok

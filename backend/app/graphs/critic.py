@@ -9,14 +9,19 @@ SPEC §3.3 이 명시한 4개 항목:
   3. 주간 티켓 합계 <= 가용시간
   4. 고아 노드 없음 (모든 노드에 티켓 1개 이상)
 
-여기에 두 가지를 더한다.
+여기에 세 가지를 더한다.
   5. 청사진 커버리지 — 사용자가 말한 완성 기준을 맡는 주가 있는가.
      AI 가 세운 기준을 AI 가 검사하는 게 아니다. 기준 key 와 주의 covers 를
      맞춰보는 집합 연산이라 LLM 이 없다 (R2).
-  6. 자기 참조 무결성 (끊긴 참조/중복 키/미연결 티켓).
+  6. 티켓 본문 — 완료 조건이 2개 이상 있고, 확인할 수 있는 말로 쓰였는가.
+     프롬프트는 전부터 이 형식을 요구했지만 아무도 검사하지 않았다. 검사하지 않는
+     요구는 지켜지지 않는다. 완료 조건이 없는 티켓은 「끝났는지」를 사용자가
+     판단할 수 없고, 그러면 실패 감지(§2.3)의 입력 자체가 흐려진다.
+  7. 자기 참조 무결성 (끊긴 참조/중복 키/미연결 티켓).
      깨지면 emit 에서 DB 제약으로 터지므로, 터지기 전에 잡아 재시도로 돌린다.
 """
 
+import re
 from collections import Counter, defaultdict
 
 from app.models.schemas import (
@@ -26,6 +31,54 @@ from app.models.schemas import (
     PlanDraft,
     Violation,
 )
+
+# 티켓 본문에 있어야 하는 완료 조건 최소 개수 (SPEC §2.2 본문 포맷)
+MIN_ACCEPTANCE_CRITERIA = 2
+
+CRITERIA_HEADING = re.compile(r"^\s*#{1,4}\s*완료\s*조건\s*$")
+NEXT_HEADING = re.compile(r"^\s*#{1,4}\s")
+_CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]\]\s*(.+?)\s*$")
+
+# 항목 **전체**가 이 표현뿐이면 확인할 수 없는 조건이다.
+# 넓게 잡지 않는다 — 멀쩡한 조건을 걸러 재시도만 태우는 게 더 나쁘다.
+_VAGUE = re.compile(
+    r"^(잘\s*(동작|작동|된다|되는지)?(한다|하는지|합니다)?"
+    r"|제대로\s*(동작|작동|된다|한다)?"
+    r"|문제\s*없(다|음|는지|이)?"
+    r"|정상\s*(동작|작동)?(한다|확인)?"
+    r"|깔끔(하다|하게|히)?"
+    r"|완성(한다|됨|되었다)?"
+    r"|구현(한다|됨|완료)?"
+    r"|확인(한다|함|하기)?"
+    r"|테스트(한다|하기)?"
+    r"|동작\s*확인)[.!]?$"
+)
+# 너무 짧으면 무엇을 확인해야 하는지 알 수 없다. "빌드 성공"(5)은 통과해야 한다.
+MIN_CRITERION_LENGTH = 4
+
+
+def acceptance_criteria(body: str) -> list[str]:
+    """티켓 본문의 「완료 조건」 섹션에서 체크 항목을 뽑는다 (SPEC §2.2)."""
+    items: list[str] = []
+    inside = False
+    for line in (body or "").splitlines():
+        if CRITERIA_HEADING.match(line):
+            inside = True
+            continue
+        if inside and NEXT_HEADING.match(line):
+            break
+        if inside and (m := _CHECKBOX.match(line)):
+            items.append(m.group(1).strip())
+    return items
+
+
+def weak_criteria(body: str) -> list[str]:
+    """확인할 수 없는 완료 조건만 골라 돌려준다."""
+    return [
+        item
+        for item in acceptance_criteria(body)
+        if len(item) < MIN_CRITERION_LENGTH or _VAGUE.match(item)
+    ]
 
 
 def _find_cycle(edges: dict[str, list[str]]) -> list[str] | None:
@@ -56,7 +109,15 @@ def _find_cycle(edges: dict[str, list[str]]) -> list[str] | None:
     return None
 
 
-def run_critic(draft: PlanDraft, constraints: Constraints) -> CriticResult:
+def run_critic(
+    draft: PlanDraft, constraints: Constraints, *, check_bodies: bool = True
+) -> CriticResult:
+    """초안을 검증한다.
+
+    check_bodies 는 재설계 그래프가 끈다. 재설계의 초안에는 이 규칙이 생기기 전에
+    쓰인 기존 티켓이 그대로 실려 있고, 그건 이번 재설계가 고칠 대상이 아니다.
+    (새로 만드는 티켓의 본문은 replan.py 가 형식을 갖춰 넣는다.)
+    """
     violations: list[Violation] = []
 
     if not draft.tickets or not draft.weekly_goals or not draft.tasks:
@@ -214,6 +275,40 @@ def run_critic(draft: PlanDraft, constraints: Constraints) -> CriticResult:
                         "그 주의 티켓을 그쪽으로 바꿔라."
                     ),
                     targets=uncovered,
+                )
+            )
+
+    # ── 6. 티켓 본문 — 완료 조건이 있고 확인할 수 있는가 (§2.2) ──
+    if check_bodies:
+        missing: list[str] = []
+        vague: list[str] = []
+        for t in draft.tickets:
+            items = acceptance_criteria(t.body)
+            if len(items) < MIN_ACCEPTANCE_CRITERIA:
+                missing.append(f"{t.key}({len(items)}개)")
+                continue
+            weak = weak_criteria(t.body)
+            if weak:
+                vague.append(f"{t.key}: {weak[0]}")
+        if missing or vague:
+            detail = []
+            if missing:
+                detail.append(
+                    f"완료 조건이 {MIN_ACCEPTANCE_CRITERIA}개 미만인 티켓: "
+                    + ", ".join(missing[:8])
+                )
+            if vague:
+                detail.append("확인할 수 없는 완료 조건: " + "; ".join(vague[:5]))
+            violations.append(
+                Violation(
+                    code="weak_ticket_body",
+                    message=(
+                        "; ".join(detail)
+                        + ". 본문은 「## 무엇을 / ## 완료 조건 / ## 참고」 형식이고, "
+                        "완료 조건은 눈으로 확인할 수 있어야 한다 "
+                        "(\"테스트 3개 통과\", \"빌드 성공\", \"응답 200\")."
+                    ),
+                    targets=[d.split("(")[0].split(":")[0] for d in [*missing, *vague]],
                 )
             )
 
