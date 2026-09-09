@@ -164,6 +164,39 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 .ticket .sub { font-size: 11px; color: var(--dim); display: flex; gap: 8px; margin-top: 2px; }
 .ticket .sub .delay { color: var(--risk); }
 
+/* ── 오늘 포커스 (§5 좌측 「오늘」 탭) ──────────────────────── */
+.board-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.board-tabs button {
+  padding: 4px 12px; font-size: 12px; background: transparent; border-color: transparent;
+  color: var(--muted);
+}
+.board-tabs button.on {
+  background: var(--panel-2); border-color: var(--border); color: var(--text);
+}
+
+.today-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.today-head .date { font-size: 13px; font-weight: 600; }
+.today-head .count { font-size: 12px; color: var(--muted); margin-left: auto; }
+.today-head .count b { color: var(--text); }
+
+.capacity { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.capacity i { display: block; height: 100%; background: var(--progress); }
+.capacity.over i { background: var(--risk); }
+.capacity-note { font-size: 11px; color: var(--dim); margin-top: 4px; }
+.capacity-note b { color: var(--risk); font-weight: 500; }
+
+.today-section { margin-top: 18px; }
+.today-section > h4 {
+  font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 500;
+}
+.today-section > h4.risk { color: var(--risk); }
+.today-section > h4.foldable { cursor: pointer; user-select: none; }
+.today-section > h4.foldable:hover { color: var(--text); }
+.today .reason {
+  margin: -2px 0 8px 36px; font-size: 11px; color: var(--dim); line-height: 1.5;
+}
+.today .notice.warn { margin-top: 18px; }
+
 /* 티켓 상세 (§5) */
 .detail {
   background: var(--panel); border-left: 1px solid var(--border);

@@ -1,7 +1,49 @@
 /** 티켓 보드 (SPEC §5 좌측 패널). 마일스톤 > 주차별 목표 > 티켓 (§2.1). */
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import type { ProjectView, Ticket } from "../api";
+
+interface RowProps {
+  ticket: Ticket;
+  selected: boolean;
+  onSelect: (ticket: Ticket) => void;
+  onToggleDone: (ticket: Ticket) => void;
+  /** 상태 줄 끝에 덧붙일 배지 (오늘 탭에서 "3일 지남" 같은 것). */
+  extra?: ReactNode;
+}
+
+/** 티켓 한 줄. 「전체」와 「오늘」이 같은 마크업을 쓴다 — 같은 것은 같아 보여야 한다. */
+export function TicketRow({ ticket, selected, onSelect, onToggleDone, extra }: RowProps) {
+  return (
+    <div
+      className={["ticket", ticket.status, selected ? "selected" : ""].join(" ")}
+      onClick={() => onSelect(ticket)}
+    >
+      <div
+        className="check"
+        role="checkbox"
+        aria-checked={ticket.status === "done"}
+        aria-label={`${ticket.title} 완료`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleDone(ticket);
+        }}
+      >
+        {ticket.status === "done" ? "✓" : ""}
+      </div>
+      <div className="body">
+        <div className="title">{ticket.title}</div>
+        <div className="sub">
+          <span>{ticket.est_minutes}분</span>
+          {ticket.due_date && <span>{ticket.due_date}</span>}
+          {ticket.delay_count > 0 && <span className="delay">지연 {ticket.delay_count}회</span>}
+          {ticket.status === "blocked" && <span className="delay">막힘</span>}
+          {extra}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   view: ProjectView;
@@ -68,39 +110,13 @@ export function TicketBoard({
                   </span>
                 </h4>
                 {tickets.map((t) => (
-                  <div
+                  <TicketRow
                     key={t.id}
-                    className={[
-                      "ticket",
-                      t.status,
-                      selectedTicketId === t.id ? "selected" : "",
-                    ].join(" ")}
-                    onClick={() => onSelectTicket(t)}
-                  >
-                    <div
-                      className="check"
-                      role="checkbox"
-                      aria-checked={t.status === "done"}
-                      aria-label={`${t.title} 완료`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleDone(t);
-                      }}
-                    >
-                      {t.status === "done" ? "✓" : ""}
-                    </div>
-                    <div className="body">
-                      <div className="title">{t.title}</div>
-                      <div className="sub">
-                        <span>{t.est_minutes}분</span>
-                        {t.due_date && <span>{t.due_date}</span>}
-                        {t.delay_count > 0 && (
-                          <span className="delay">지연 {t.delay_count}회</span>
-                        )}
-                        {t.status === "blocked" && <span className="delay">막힘</span>}
-                      </div>
-                    </div>
-                  </div>
+                    ticket={t}
+                    selected={selectedTicketId === t.id}
+                    onSelect={onSelectTicket}
+                    onToggleDone={onToggleDone}
+                  />
                 ))}
               </div>
             );

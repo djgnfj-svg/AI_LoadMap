@@ -10,6 +10,8 @@ import { AlertsPanel } from "../components/AlertsPanel";
 import { ArchDiagram } from "../components/ArchDiagram";
 import { TicketBoard } from "../components/TicketBoard";
 import { TicketDetail } from "../components/TicketDetail";
+import { TodayFocus } from "../components/TodayFocus";
+import { todayISO } from "../today";
 
 interface Props {
   projectId: string;
@@ -24,6 +26,9 @@ export function Main({ projectId, onBack, onOpenReview }: Props) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [boardMode, setBoardMode] = useState<"today" | "all">("today");
+  // 자정을 넘겨도 화면이 어제에 머물지 않도록 렌더마다 로컬 날짜를 읽는다.
+  const today = todayISO();
 
   const refresh = useCallback(async () => {
     try {
@@ -73,6 +78,13 @@ export function Main({ projectId, onBack, onOpenReview }: Props) {
     await api.patchTicket(ticket.id, action, extra);
     await refresh(); // 노드 상태는 서버가 다시 계산한다 (§4.4, R2)
   };
+
+  // 「오늘」과 「전체」가 같은 핸들러를 쓴다 — 어느 탭에서 골라도 하이라이트는 하나다.
+  const selectTicket = (t: Ticket) => {
+    setSelectedTicketId(t.id === selectedTicketId ? null : t.id);
+    setShowAlerts(false);
+  };
+  const toggleDone = (t: Ticket) => void act(t, t.status === "done" ? "start" : "complete");
 
   if (error) return <div className="empty">불러오지 못했습니다: {error}</div>;
   if (!view) return <div className="empty">불러오는 중…</div>;
@@ -141,16 +153,35 @@ export function Main({ projectId, onBack, onOpenReview }: Props) {
             </ul>
           </div>
         )}
-        <TicketBoard
-          view={view}
-          visibleTicketIds={visibleTicketIds}
-          selectedTicketId={selectedTicketId}
-          onSelectTicket={(t) => {
-            setSelectedTicketId(t.id === selectedTicketId ? null : t.id);
-            setShowAlerts(false);
-          }}
-          onToggleDone={(t) => void act(t, t.status === "done" ? "start" : "complete")}
-        />
+        <div className="board-tabs">
+          <button
+            className={boardMode === "today" ? "on" : ""}
+            onClick={() => setBoardMode("today")}
+          >
+            오늘
+          </button>
+          <button className={boardMode === "all" ? "on" : ""} onClick={() => setBoardMode("all")}>
+            전체
+          </button>
+        </div>
+        {boardMode === "today" ? (
+          <TodayFocus
+            view={view}
+            today={today}
+            visibleTicketIds={visibleTicketIds}
+            selectedTicketId={selectedTicketId}
+            onSelectTicket={selectTicket}
+            onToggleDone={toggleDone}
+          />
+        ) : (
+          <TicketBoard
+            view={view}
+            visibleTicketIds={visibleTicketIds}
+            selectedTicketId={selectedTicketId}
+            onSelectTicket={selectTicket}
+            onToggleDone={toggleDone}
+          />
+        )}
       </div>
 
       <div className="pane right">
