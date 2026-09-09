@@ -19,6 +19,26 @@ from app.models.schemas import (
     PlanDraft,
 )
 
+async def drive_plan_graph(graph, base: dict, *, rounds: int = 3) -> dict:
+    """인터뷰에 답해가며 생성 그래프를 끝까지 돌린다.
+
+    그래프는 인터뷰 라운드마다 종료되고 API 가 답을 얹어 다시 부른다 (SPEC §3.3).
+    테스트에서 계획까지 가려면 그 왕복을 그대로 흉내내야 한다.
+    """
+    result = await graph.ainvoke(base)
+    for _ in range(rounds):
+        if not result.get("awaiting_clarify"):
+            return result
+        result = await graph.ainvoke(
+            {
+                **base,
+                "interview": result["interview"],
+                "clarify_answers": {q.field: "테스트 답변" for q in result["clarify_questions"]},
+            }
+        )
+    raise AssertionError("인터뷰가 라운드 상한 안에 끝나지 않았다")
+
+
 def at_utc(day: date) -> datetime:
     """timestamptz 컬럼에 넣을 그 날 자정 (UTC).
 

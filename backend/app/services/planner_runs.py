@@ -3,6 +3,10 @@
 APScheduler 를 프로세스 안에서 돌리는 구성(SPEC §3.1)이라 이미 단일 프로세스를 전제한다.
 실행 상태도 같은 전제로 메모리에 둔다. 프로세스가 죽으면 진행 중이던 생성은 사라지고,
 사용자는 다시 요청하면 된다 — 완성된 계획은 DB 에 있으므로 잃는 게 없다.
+
+⚠ 인터뷰 문답만은 예외다. 그건 사용자가 직접 쓴 글이라 다시 요청하라고 할 수 없다.
+질문을 만들 때와 답을 받을 때마다 `projects.interview` 에 저장한다. 그래서 새로고침도
+서버 재시작도 인터뷰를 지우지 못한다.
 """
 
 import asyncio
@@ -15,7 +19,7 @@ from app import db
 from app.graphs.llm import Planner
 from app.graphs.persist import persist_plan
 from app.graphs.plan_graph import build_plan_graph
-from app.models.schemas import ClarifyQuestion, Constraints, PlanDraft
+from app.models.schemas import ClarifyQuestion, Constraints, InterviewTurn, PlanDraft
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +28,7 @@ RunStatus = Literal["running", "awaiting_clarify", "done", "failed"]
 # 그래프 노드 -> 사용자에게 보여줄 한 줄 (SPEC §5 "SSE로 단계별 표시")
 NODE_LABELS = {
     "intake": "목표에서 제약을 읽는 중",
-    "clarify": "빠진 정보를 확인하는 중",
+    "interview": "답한 내용을 읽는 중",
     "decompose": "주 · 태스크 · 티켓으로 쪼개는 중",
     "architect": "아키텍처를 그리는 중",
     "link": "티켓과 컴포넌트를 잇는 중",
@@ -41,6 +45,7 @@ class PlanRun:
     known: dict[str, Any]
     status: RunStatus = "running"
     questions: list[ClarifyQuestion] = field(default_factory=list)
+    interview: list[InterviewTurn] = field(default_factory=list)
     repairs: list[str] = field(default_factory=list)
     error: str | None = None
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
@@ -61,8 +66,14 @@ class PlanRunner:
         goal_text: str,
         known: dict[str, Any],
         clarify_answers: dict[str, str] | None = None,
+        interview: list[InterviewTurn] | None = None,
     ) -> PlanRun:
-        run = PlanRun(project_id=project_id, goal_text=goal_text, known=known)
+        run = PlanRun(
+            project_id=project_id,
+            goal_text=goal_text,
+            known=known,
+            interview=list(interview or []),
+        )
         self._runs[project_id] = run
         run.task = asyncio.create_task(self._execute(run, clarify_answers or {}))
         return run
@@ -72,6 +83,7 @@ class PlanRunner:
             "goal_text": run.goal_text,
             "known": run.known,
             "clarify_answers": clarify_answers,
+            "interview": run.interview,
             "attempt": 0,
         }
         final: dict[str, Any] = dict(state)
@@ -80,6 +92,9 @@ class PlanRunner:
                 for node, update in chunk.items():
                     final.update(update)
                     await run.queue.put(self._node_event(node, update))
+
+            run.interview = final.get("interview") or run.interview
+            await self._save_interview(run)
 
             if final.get("awaiting_clarify"):
                 run.questions = final.get("clarify_questions") or []
@@ -133,6 +148,15 @@ class PlanRunner:
                 "links": len(draft.links),
             }
         return event
+
+    async def _save_interview(self, run: PlanRun) -> None:
+        """문답을 DB 에 남긴다. 사용자가 쓴 글이라 프로세스와 함께 사라지면 안 된다."""
+        async with db.transaction() as conn:
+            await conn.execute(
+                "update projects set interview = $2 where id = $1",
+                run.project_id,
+                [t.model_dump() for t in run.interview],
+            )
 
     async def _persist(self, run: PlanRun, final: dict[str, Any]) -> None:
         constraints: Constraints | None = final.get("constraints")

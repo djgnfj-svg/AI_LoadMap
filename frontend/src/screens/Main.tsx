@@ -17,9 +17,10 @@ interface Props {
   projectId: string;
   onBack: () => void;
   onOpenReview: (reviewDayId: string) => void;
+  onResumeInterview: () => void;
 }
 
-export function Main({ projectId, onBack, onOpenReview }: Props) {
+export function Main({ projectId, onBack, onOpenReview, onResumeInterview }: Props) {
   const [view, setView] = useState<ProjectView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
@@ -96,9 +97,9 @@ export function Main({ projectId, onBack, onOpenReview }: Props) {
   if (generation.status === "awaiting_clarify") {
     return (
       <div className="empty">
-        clarify 질문에 답해야 계획이 만들어집니다.{" "}
-        <button className="link-btn" onClick={onBack}>
-          입력 화면으로
+        <p>답을 기다리는 질문이 {generation.questions.length}개 남아 있습니다.</p>
+        <button className="primary" onClick={onResumeInterview}>
+          인터뷰 이어서 하기
         </button>
       </div>
     );

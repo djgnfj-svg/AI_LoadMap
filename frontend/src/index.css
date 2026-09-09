@@ -92,8 +92,31 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 .notice h4 { margin: 0 0 8px; font-size: 13px; }
 .notice ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
 
-.clarify-q { margin-bottom: 14px; }
+/* ── 인터뷰 (§3.3) ─────────────────────────────────────────── */
+.clarify-q { margin-bottom: 18px; }
 .clarify-q p { margin: 0 0 6px; }
+.clarify-q label {
+  display: flex; gap: 8px; align-items: baseline;
+  margin: 0 0 8px; line-height: 1.5;
+}
+.clarify-q textarea { min-height: 0; resize: vertical; }
+.q-no {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--border);
+  font-size: 11px; color: var(--muted);
+}
+.interview { margin-top: 8px; }
+
+/* 지금까지 답한 것 — 이 계획의 근거가 무엇인지 화면에 남겨 둔다 */
+.transcript {
+  margin: 20px 0 28px; padding: 14px 16px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+}
+.transcript h5 { margin: 0 0 10px; font-size: 12px; color: var(--dim); font-weight: 600; }
+.transcript .turn + .turn { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.transcript .q { margin: 0 0 4px; font-size: 12px; color: var(--dim); }
+.transcript .a { margin: 0; color: var(--muted); white-space: pre-wrap; }
 
 /* ── 메인 2분할 (§5) ───────────────────────────────────────── */
 .main {

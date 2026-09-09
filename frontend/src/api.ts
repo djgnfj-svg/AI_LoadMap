@@ -87,8 +87,17 @@ export interface ClarifyQuestion {
   question: string;
 }
 
+/** 인터뷰 문답 하나 (SPEC §3.3). answer 가 비면 아직 답하지 않은 질문이다. */
+export interface InterviewTurn {
+  round: number;
+  field: string;
+  question: string;
+  answer: string;
+}
+
 export interface ProjectView {
   project: Project;
+  interview: InterviewTurn[];
   generation: {
     status: "running" | "awaiting_clarify" | "done" | "failed";
     questions: ClarifyQuestion[];

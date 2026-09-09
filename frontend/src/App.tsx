@@ -1,8 +1,9 @@
 /** 라우팅은 해시 하나로 끝낸다 (R6 — 새 기술 추가 금지).
  *
  *   #/                                 내 로드맵 목록 (로그인 전이면 로그인 화면)
- *   #/new                              목표 입력 -> 생성
+ *   #/new                              목표 입력 -> 인터뷰 -> 생성
  *   #/{projectId}                      메인 (티켓 보드 + 다이어그램)
+ *   #/{projectId}/interview            인터뷰 이어가기 (답하다 나간 경우)
  *   #/{projectId}/review/{reviewDayId} 재점검 세션
  *
  * 로그인 여부는 /auth/me 한 번으로 정한다. 아니면 화면마다 401 을 따로 받아야 한다.
@@ -19,6 +20,7 @@ import { ReviewSession } from "./screens/ReviewSession";
 interface Route {
   projectId: string | null;
   reviewDayId: string | null;
+  interview: boolean;
 }
 
 function readRoute(): Route {
@@ -26,6 +28,7 @@ function readRoute(): Route {
   return {
     projectId: parts[0] ?? null,
     reviewDayId: parts[1] === "review" ? (parts[2] ?? null) : null,
+    interview: parts[1] === "interview",
   };
 }
 
@@ -87,12 +90,23 @@ export default function App() {
   if (route.projectId === "new") {
     return <GoalInput onCreated={(id) => go(`/${id}`)} onBack={() => go("")} />;
   }
+  if (route.projectId && route.interview) {
+    // 인터뷰에 답하다 나갔던 프로젝트. 문답은 DB 에 있으므로 그대로 이어진다.
+    return (
+      <GoalInput
+        resumeProjectId={route.projectId}
+        onCreated={(id) => go(`/${id}`)}
+        onBack={() => go("")}
+      />
+    );
+  }
   if (route.projectId) {
     return (
       <Main
         projectId={route.projectId}
         onBack={() => go("")}
         onOpenReview={(id) => go(`/${route.projectId}/review/${id}`)}
+        onResumeInterview={() => go(`/${route.projectId}/interview`)}
       />
     );
   }

@@ -1,21 +1,26 @@
 """생성 그래프 (SPEC §3.3).
 
-intake -> clarify -> decompose -> architect -> link -> critic -> emit
+intake -> interview -> decompose -> architect -> link -> critic -> emit
                                      ^                    |
                                      +---- 실패(최대 3회) --+
 
 critic 이 이 그래프의 존재 이유다. 검증 없이 한 번 호출하고 끝나면 LLM 래퍼와 다르지 않다.
 재시도가 소진되면 결정적 복구(app/graphs/repair.py)를 거쳐 emit 으로 간다.
 
-clarify 의 "[사용자 응답 대기]"는 그래프를 두 번 실행해 처리한다.
-1회차: intake -> clarify -> 질문을 들고 종료.
-2회차: 같은 입력 + clarify_answers 로 재실행하면 clarify 를 통과해 decompose 로 간다.
-체크포인터가 필요 없고, SPEC §0.3 의 "clarify 1회 고정" 축소와도 맞는다.
+interview 의 "[사용자 응답 대기]"는 그래프를 여러 번 실행해 처리한다.
+1회차: intake -> interview -> 1라운드 질문(고정)을 들고 종료.
+2회차: 같은 입력 + interview(지금까지 문답) + clarify_answers 로 재실행.
+       답을 채우고, 아직 모르는 게 있으면 2라운드 질문을 들고 다시 종료.
+3회차: 라운드 상한에 닿으면 통과해 decompose 로 간다.
+
+체크포인터가 필요 없다 — 이어가는 데 필요한 것이 전부 `interview`(문답 전문) 하나이고,
+그것은 DB(`projects.interview`)에 있다. 프로세스가 죽어도 인터뷰가 이어진다.
 """
 
 from langgraph.graph import END, START, StateGraph
 
 from app.config import get_settings
+from app.graphs import interview as interview_rules
 from app.graphs import prompts
 from app.graphs.critic import run_critic
 from app.graphs.llm import Planner
@@ -27,11 +32,10 @@ from app.models.schemas import (
     Constraints,
     DecomposeResult,
     IntakeResult,
+    InterviewTurn,
     LinkResult,
     PlanDraft,
 )
-
-MAX_CLARIFY_QUESTIONS = 5  # SPEC §3.3
 
 
 def build_plan_graph(planner: Planner, max_retries: int | None = None):
@@ -59,39 +63,84 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
         missing = [m for m in result.missing if known.get(m) is None]
         return {"title": result.title, "constraints": constraints, "missing": missing}
 
-    # ── clarify ───────────────────────────────────────────────
-    async def clarify(state: PlanState) -> dict:
-        missing = state.get("missing") or []
+    # ── interview ─────────────────────────────────────────────
+    async def interview(state: PlanState) -> dict:
+        """청사진을 묻고, 받은 답을 원문 그대로 들고 간다.
+
+        1라운드 질문은 고정이다(LLM 미개입). 2라운드부터 LLM 이 1라운드 답을 읽고
+        아직 모르는 것만 되묻는다. 상한은 interview.MAX_ROUNDS.
+        """
+        turns: list[InterviewTurn] = list(state.get("interview") or [])
         answers = state.get("clarify_answers") or {}
 
-        # 이미 답을 받았거나 물을 게 없으면 통과한다.
-        if not missing or answers:
-            constraints = _apply_answers(state["constraints"], answers)
+        turns = interview_rules.record_answers(turns, answers)
+        constraints = interview_rules.apply_answers(state["constraints"], answers)
+        round_no = interview_rules.current_round(turns)
+
+        def wait(questions: list, next_turns: list[InterviewTurn]) -> dict:
             return {
                 "constraints": constraints,
-                "awaiting_clarify": False,
-                "clarify_questions": [],
+                "interview": next_turns,
+                "clarify_questions": questions,
+                "awaiting_clarify": True,
             }
+
+        def proceed(next_turns: list[InterviewTurn]) -> dict:
+            return {
+                "constraints": constraints,
+                "interview": next_turns,
+                "clarify_questions": [],
+                "awaiting_clarify": False,
+            }
+
+        # 아직 아무것도 안 물었다 — 1라운드.
+        if round_no == 0:
+            questions = interview_rules.first_round(state.get("missing") or [], constraints)
+            turns += [
+                InterviewTurn(round=1, field=q.field, question=q.question) for q in questions
+            ]
+            return wait(questions, turns)
+
+        # 이번 라운드 답이 아직 안 들어왔다 — 같은 질문을 그대로 들고 기다린다.
+        # (새로고침 뒤 재실행되는 경우다. 질문을 다시 만들지 않는다.)
+        if not interview_rules.answered_current_round(turns, answers):
+            return wait(interview_rules.pending(turns), turns)
+
+        if round_no >= interview_rules.MAX_ROUNDS:
+            return proceed(turns)
 
         result: ClarifyResult = await planner.structured(
             system=prompts.SYSTEM,
-            prompt=prompts.CLARIFY.format(
-                missing=", ".join(missing),
-                constraints=state["constraints"].model_dump_json(),
+            prompt=prompts.FOLLOWUP.format(
+                goal_text=state["goal_text"],
+                transcript=prompts.format_transcript(turns),
+                constraints=constraints.model_dump_json(),
             ),
             output_model=ClarifyResult,
         )
-        questions = result.questions[:MAX_CLARIFY_QUESTIONS]
-        return {"clarify_questions": questions, "awaiting_clarify": bool(questions)}
+        asked = {t.field for t in turns}
+        questions = [q for q in result.questions if q.field not in asked][
+            : interview_rules.MAX_QUESTIONS_PER_ROUND
+        ]
+        if not questions:
+            return proceed(turns)
 
-    def after_clarify(state: PlanState) -> str:
+        turns += [
+            InterviewTurn(round=round_no + 1, field=q.field, question=q.question)
+            for q in questions
+        ]
+        return wait(questions, turns)
+
+    def after_interview(state: PlanState) -> str:
         return "wait" if state.get("awaiting_clarify") else "decompose"
 
     # ── decompose ─────────────────────────────────────────────
     async def decompose(state: PlanState) -> dict:
         constraints: Constraints = state["constraints"]
         attempt = state.get("attempt", 0)
-        prompt = prompts.decompose_prompt(state["goal_text"], constraints)
+        prompt = prompts.decompose_prompt(
+            state["goal_text"], constraints, state.get("interview") or []
+        )
 
         critic = state.get("critic")
         if critic and not critic.ok:
@@ -176,7 +225,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
 
     graph = StateGraph(PlanState)
     graph.add_node("intake", intake)
-    graph.add_node("clarify", clarify)
+    graph.add_node("interview", interview)
     graph.add_node("decompose", decompose)
     graph.add_node("architect", architect)
     graph.add_node("link", link)
@@ -185,9 +234,9 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
     graph.add_node("emit", emit)
 
     graph.add_edge(START, "intake")
-    graph.add_edge("intake", "clarify")
+    graph.add_edge("intake", "interview")
     graph.add_conditional_edges(
-        "clarify", after_clarify, {"wait": END, "decompose": "decompose"}
+        "interview", after_interview, {"wait": END, "decompose": "decompose"}
     )
     graph.add_edge("decompose", "architect")
     graph.add_edge("architect", "link")
@@ -201,22 +250,3 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
     graph.add_edge("emit", END)
 
     return graph.compile()
-
-
-def _apply_answers(constraints: Constraints, answers: dict[str, str]) -> Constraints:
-    """clarify 답변을 제약에 반영한다. 숫자로 안 읽히는 답은 무시하고 추론값을 유지한다."""
-    if not answers:
-        return constraints
-    data = constraints.model_dump()
-    for field in ("duration_weeks", "hours_per_week", "team_size"):
-        raw = answers.get(field)
-        if raw is None:
-            continue
-        digits = "".join(ch for ch in str(raw) if ch.isdigit())
-        if digits:
-            data[field] = int(digits)
-    if answers.get("level") in ("beginner", "intermediate", "advanced"):
-        data["level"] = answers["level"]
-    if answers.get("stack"):
-        data["stack"] = [s.strip() for s in str(answers["stack"]).split(",") if s.strip()]
-    return Constraints(**data)

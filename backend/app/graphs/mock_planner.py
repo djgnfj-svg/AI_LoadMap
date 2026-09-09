@@ -118,11 +118,25 @@ class MockPlanner:
         )
 
     def _ClarifyResult(self, prompt: str) -> ClarifyResult:  # noqa: N802
-        fields = re.search(r"추측으로 채운 필드:\s*(.+)", prompt)
-        names = [f.strip() for f in fields.group(1).split(",")] if fields else []
+        """2라운드 후속 질문 (1라운드는 LLM 을 부르지 않는다 — graphs/interview.py).
+
+        목업이라 답을 읽고 판단할 수는 없다. 대신 **답의 길이**로 정한다:
+        전부 한두 줄로 넘겼으면 한 번 더 묻고, 아니면 통과시킨다.
+        키 없이 돌려도 「되묻는 인터뷰」가 화면에 보여야 하기 때문이다.
+        """
+        answers = re.findall(r"^A\. (.*)$", prompt, flags=re.MULTILINE)
+        written = sum(len(a) for a in answers if a != "(답을 건너뛰었다)")
+        if written >= 80:
+            return ClarifyResult(questions=[])
         return ClarifyResult(
             questions=[
-                ClarifyQuestion(field=f, question=f"{f} 값을 알려주세요") for f in names[:5]
+                ClarifyQuestion(
+                    field="scope",
+                    question=(
+                        "적어주신 것만으로는 범위가 아직 넓습니다. "
+                        "이번 기간에 **반드시** 있어야 하는 것 하나만 고른다면 무엇인가요?"
+                    ),
+                )
             ]
         )
 

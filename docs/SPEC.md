@@ -48,7 +48,9 @@
 
 **절대 못 자름**: 생성 그래프 + `critic` 루프 / 티켓↔노드 연동 시각화 / 재점검일 → 재설계 → diff 승인
 
-**자를 수 있음**: 웹푸시(이메일만) / Export / clarify 다단계 질문(1회 고정으로 축소)
+**자를 수 있음**: 웹푸시(이메일만) / Export
+
+⚠ **인터뷰도 자르지 않기로 했다** (2026-09-09 개정). 「clarify 1회 고정으로 축소」를 되돌린다. 목표 한 줄과 숫자 세 칸으로는 남의 계획과 구별되는 계획이 안 나온다. 게다가 그 1회 답변은 숫자만 뽑히고 문장은 버려지고 있었다 — 사용자가 무슨 말을 해도 계획이 같았다는 뜻이다. 이제 청사진부터 되묻고(§3.3), 답변 **원문**을 `projects.interview` 에 남겨 decompose 프롬프트에 넣는다.
 
 ⚠ **로그인은 자르지 않기로 했다** (2026-09-09 개정). 데모 계정 고정으로 두면 `projects.user_id` 가 비고, 프로젝트 id 만 알면 누구나 남의 로드맵을 읽고 고칠 수 있다. 로드맵이 「내 것」이 되려면 계정이 먼저 있어야 한다. 구글 로그인 하나만 받고, 세션은 서명된 쿠키 하나다 — 마이그레이션 `0004_auth.sql`, `app/auth.py`. 클라이언트 ID 가 설정돼 있지 않으면 데모 계정으로 열린다 (API 키가 없으면 목업 Planner 로 도는 것과 같은 결).
 
@@ -345,8 +347,12 @@ LLM에게 분해를 시키면 "인증 구현", "DB 설계" 같은 덩어리가 �
 intake
   │  목표 텍스트 + 제약(기간/주당 가용시간/수준/스택) 파싱
   ▼
-clarify ────────────► [사용자 응답 대기]
-  │  부족한 정보만 질문. 최대 5개.
+interview ──────────► [사용자 응답 대기]
+  │  1라운드: 고정 질문 (LLM 미개입). 청사진 → 완료 기준 → 현재 위치 → 기한.
+  │           + 추측으로 채운 가용시간이 있으면 같이 묻는다. 라운드당 최대 5개.
+  │  2라운드: LLM 이 1라운드 답을 읽고 아직 모르는 것만 되묻는다 (최대 3개).
+  │           더 물을 게 없으면 통과. 라운드 상한은 2다.
+  │  답변 원문은 projects.interview 에 남고 decompose 프롬프트로 들어간다.
   ▼
 decompose
   │  주 → 태스크 → 티켓
@@ -371,7 +377,7 @@ emit
 | 노드 | 입력 | 출력 |
 |---|---|---|
 | `intake` | 자연어 목표 | 구조화된 제약 객체 |
-| `clarify` | 제약 객체 | 부족 필드 질문 목록 (없으면 통과) |
+| `interview` | 제약 객체 + 지금까지의 문답 | 이번 라운드 질문 (없으면 통과) + 문답 전문 |
 | `decompose` | 제약 객체 | 주/태스크/티켓 트리 |
 | `architect` | 제약 + 주·태스크 | 노드·엣지 그래프 |
 | `link` | 티켓 + 노드 | 매핑 테이블 |
@@ -409,7 +415,7 @@ diff
 |---|---|---|
 | POST | `/projects` | 목표 입력 → 생성 그래프 시작 |
 | GET | `/projects/{id}/stream` | SSE, 그래프 진행 상황 스트리밍 |
-| POST | `/projects/{id}/clarify` | clarify 응답 제출 |
+| POST | `/projects/{id}/clarify` | 인터뷰 답변 제출 (메모리에 실행이 없어도 받는다) |
 | GET | `/projects/{id}` | 로드맵 + 아키텍처 전체 조회 |
 | PATCH | `/tickets/{id}` | 상태 변경 (완료/연기/차단) |
 | POST | `/tickets/{id}/block` | 막힘 사유 입력 |
@@ -460,6 +466,7 @@ create table projects (
   title         text not null,
   goal_text     text not null,          -- 원문 목표
   constraints   jsonb not null,         -- {duration_weeks, hours_per_week, level, stack[], team_size}
+  interview     jsonb not null default '[]',  -- §3.3 문답 전문 [{round, field, question, answer}]
   status        text default 'active',  -- active | paused | done | abandoned
   created_at    timestamptz default now()
 );
@@ -617,7 +624,7 @@ having count(*) >= 2;
 
 | 화면 | 구성 | 비고 |
 |---|---|---|
-| 목표 입력 | 자연어 입력 → clarify 질문 → 생성 진행 스트리밍 | SSE로 단계별 표시 |
+| 목표 입력 | 자연어 입력 → **인터뷰**(라운드마다 문답, 원문 보존) → 생성 진행 스트리밍 | SSE로 단계별 표시. 첫 질문은 청사진 |
 | 메인 (2분할) | 좌: 티켓 보드(「오늘」·「전체」 탭) / 우: React Flow 다이어그램 | **선택 시 양방향 하이라이트** |
 | └ 오늘 | 지금 손댈 수 있는 티켓 + 하루 몫 / 막힌 것 / 선행 대기 | 기본 탭. 규칙은 `frontend/src/today.ts` |
 | └ 전체 | 주 > 태스크 > 티켓 (§2.1) | |

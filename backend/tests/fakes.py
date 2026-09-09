@@ -79,11 +79,14 @@ class FakePlanner:
         decompose_results: list[DecomposeResult] | None = None,
         *,
         missing: list[str] | None = None,
+        followups: list[str] | None = None,
         constraints: Constraints | None = None,
         n_tickets: int = 4,
     ) -> None:
         self.decompose_results = decompose_results or [make_decompose(n_tickets=n_tickets)]
         self.missing = missing or []
+        # 2라운드 후속 질문. 기본은 「더 물을 것 없음」이다 (1라운드로 끝난다).
+        self.followups = followups or []
         self.constraints = constraints or Constraints(
             duration_weeks=4,
             hours_per_week=10,
@@ -105,9 +108,10 @@ class FakePlanner:
                 title="테스트 프로젝트", constraints=self.constraints, missing=self.missing
             )
         if name == "ClarifyResult":
+            # 인터뷰 2라운드 — 1라운드 답을 읽고 더 물을 게 있는지 정하는 자리다.
             return ClarifyResult(
                 questions=[
-                    ClarifyQuestion(field=f, question=f"{f} 알려주세요") for f in self.missing
+                    ClarifyQuestion(field=f, question=f"{f} 알려주세요") for f in self.followups
                 ]
             )
         if name == "DecomposeResult":

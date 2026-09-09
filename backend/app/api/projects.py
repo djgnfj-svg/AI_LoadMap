@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from app import auth, db
+from app.graphs import interview as interview_rules
 from app.graphs.persist import create_project
-from app.models.schemas import ClarifyAnswerRequest, ProjectCreateRequest
+from app.models.schemas import ClarifyAnswerRequest, InterviewTurn, ProjectCreateRequest
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -88,17 +89,74 @@ async def clarify(
     request: Request,
     user=Depends(auth.current_user),  # noqa: ANN001
 ) -> dict:
-    """clarify 응답 제출 -> 같은 목표로 그래프를 다시 돌린다 (SPEC §0.3 — clarify 1회 고정)."""
+    """인터뷰 답변 제출 -> 받은 답을 얹어 그래프를 다시 돌린다 (SPEC §3.3).
+
+    메모리의 실행 상태가 없어도 받는다. 문답은 `projects.interview` 에 있으므로
+    새로고침한 사용자도, 서버가 재시작된 뒤에도 답을 이어서 낼 수 있다.
+    """
     async with db.acquire() as conn:
         await auth.assert_owns_project(conn, project_id, user)
+        project = await conn.fetchrow(
+            "select goal_text, constraints, interview from projects where id = $1", project_id
+        )
+        ticket_count = await conn.fetchval(
+            "select count(*) from tickets where project_id = $1", project_id
+        )
+
     runner = request.app.state.runner
     run = runner.get(project_id)
-    if run is None:
-        raise HTTPException(404, "진행 중인 생성이 없다.")
-    if run.status != "awaiting_clarify":
+    turns = _interview(project)
+
+    if run is not None and run.status not in ("awaiting_clarify", "failed"):
         raise HTTPException(409, f"응답을 받을 상태가 아니다: {run.status}")
-    runner.start(project_id, run.goal_text, run.known, clarify_answers=req.answers)
+    if run is None:
+        # 메모리에 실행이 없다 — 새로고침했거나 서버가 재시작됐다.
+        if ticket_count:
+            raise HTTPException(409, "이미 계획이 만들어진 프로젝트다.")
+        if not interview_rules.pending(turns):
+            raise HTTPException(404, "답을 기다리는 질문이 없다.")
+
+    runner.start(
+        project_id,
+        run.goal_text if run else project["goal_text"],
+        run.known if run else _known_from(project["constraints"]),
+        clarify_answers=req.answers,
+        interview=run.interview if run else turns,
+    )
     return {"project_id": str(project_id), "status": "running"}
+
+
+def _interview(project) -> list[InterviewTurn]:  # noqa: ANN001
+    return [InterviewTurn(**t) for t in (project["interview"] or [])]
+
+
+def _known_from(constraints) -> dict:  # noqa: ANN001
+    """저장된 제약을 intake 에 「이미 아는 값」으로 되돌려준다 (재시작 뒤 이어가기)."""
+    return {k: v for k, v in (constraints or {}).items() if v is not None}
+
+
+def _generation(run, turns: list[InterviewTurn], *, has_plan: bool) -> dict:  # noqa: ANN001
+    """생성 진행 상태. 메모리에 실행이 없으면 DB 의 인터뷰가 답한다.
+
+    전에는 실행이 없으면 무조건 "done" 이었다. 그래서 인터뷰 도중 새로고침하면
+    티켓 0개짜리 프로젝트가 「완성됨」으로 보이고 되살릴 방법이 없었다.
+    """
+    if run is not None:
+        return {
+            "status": run.status,
+            "questions": [q.model_dump() for q in run.questions],
+            "repairs": run.repairs,
+            "error": run.error,
+        }
+    waiting = interview_rules.pending(turns)
+    if waiting and not has_plan:
+        return {
+            "status": "awaiting_clarify",
+            "questions": [q.model_dump() for q in waiting],
+            "repairs": [],
+            "error": None,
+        }
+    return {"status": "done", "questions": [], "repairs": [], "error": None}
 
 
 @router.get("/{project_id}")
@@ -158,14 +216,12 @@ async def get_project(
         )
 
     run = request.app.state.runner.get(project_id)
+    turns = _interview(project)
     return {
         "project": _row(project),
-        "generation": {
-            "status": run.status if run else "done",
-            "questions": [q.model_dump() for q in run.questions] if run else [],
-            "repairs": run.repairs if run else [],
-            "error": run.error if run else None,
-        },
+        "generation": _generation(run, turns, has_plan=bool(tickets)),
+        # 인터뷰 전문. 사용자가 자기 계획의 근거를 되짚을 수 있어야 한다.
+        "interview": [t.model_dump() for t in turns],
         "weekly_goals": [_row(r) for r in goals],
         "tasks": [_row(r) for r in tasks],
         "tickets": [_row(r) for r in tickets],

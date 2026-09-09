@@ -54,9 +54,22 @@ class ClarifyQuestion(BaseModel):
 
 
 class ClarifyResult(BaseModel):
-    """clarify 노드 출력. 최대 5개 (SPEC §3.3)."""
+    """interview 노드 출력. 한 라운드에 최대 5개 (SPEC §3.3)."""
 
     questions: list[ClarifyQuestion]
+
+
+class InterviewTurn(BaseModel):
+    """인터뷰 문답 하나. 답변 원문이 여기 남아 decompose 프롬프트로 들어간다.
+
+    `answer` 가 빈 문자열이면 아직 답을 못 받은 질문이다 — 그 상태 그대로 DB
+    (`projects.interview`)에 저장되므로, 새로고침해도 이어서 답할 수 있다.
+    """
+
+    round: int = Field(ge=1)
+    field: str
+    question: str
+    answer: str = ""
 
 
 # ─────────────────────────────────────────────────────────────

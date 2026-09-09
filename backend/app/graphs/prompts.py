@@ -4,7 +4,13 @@
 프롬프트만 고치고 critic 을 안 고치면 규칙이 두 벌이 된다.
 """
 
-from app.models.schemas import MAX_TICKET_MINUTES, Constraints, CriticResult, PlanDraft
+from app.models.schemas import (
+    MAX_TICKET_MINUTES,
+    Constraints,
+    CriticResult,
+    InterviewTurn,
+    PlanDraft,
+)
 
 SYSTEM = f"""너는 프로젝트 로드맵 설계자다. 목표를 실행 가능한 단위로 분해하고
 동시에 시스템 아키텍처를 그린다.
@@ -34,15 +40,25 @@ INTAKE = """다음 목표에서 프로젝트 제약을 읽어내라.
 """
 
 
-CLARIFY = """아래 필드는 목표 문장만으로는 확신할 수 없어 추측으로 채웠다.
+FOLLOWUP = """계획을 짜기 전에 사용자에게 청사진을 물었다. 아래가 오간 문답 전문이다.
 
-추측으로 채운 필드: {missing}
-현재 값: {constraints}
+목표:
+{goal_text}
 
-사용자에게 물어볼 질문을 만들어라.
-- 최대 5개. 추측한 필드에 대해서만 묻는다.
-- 한 문장으로, 답하기 쉽게. 현재 추측값을 괄호로 같이 보여준다.
-- 예: "주당 몇 시간 정도 쓸 수 있나요? (지금은 10시간으로 잡아뒀어요)"
+문답:
+{transcript}
+
+지금 잡혀 있는 제약: {constraints}
+
+이 답만으로 주 · 태스크 · 티켓까지 쪼갤 수 있는지 판단하라.
+- 쪼갤 수 있으면 questions 를 **빈 배열**로 낸다. 확인차 묻는 질문은 만들지 마라.
+- 아직 모르는 게 있으면 그것만 묻는다. 최대 3개.
+- 이미 답한 것을 다시 묻지 마라. 답을 건너뛴 질문도 다시 묻지 마라 — 그건 답이다.
+- 취향이 아니라 **계획이 갈리는 것**만 묻는다.
+  ✓ "혼자 쓸 건가요, 남에게 보여줄 건가요?" (범위가 갈린다)
+  ✓ "이미 정해둔 스택이 있나요?" (티켓 내용이 갈린다)
+  ✗ "어떤 색을 좋아하세요?"
+- field 는 영문 소문자 식별자로 짧게 짓는다 (예: audience, hosting).
 """
 
 
@@ -50,7 +66,7 @@ DECOMPOSE = """목표를 주 -> 태스크 -> 티켓으로 분해하라.
 
 목표:
 {goal_text}
-
+{interview}
 제약:
 - 기간 {duration_weeks}주, 주당 {hours_per_week}시간 (= 주당 {capacity}분)
 - 수준: {level}
@@ -139,6 +155,36 @@ LINK = """티켓을 아키텍처 노드에 연결하라.
 """
 
 
+def format_interview(turns: list[InterviewTurn]) -> str:
+    """인터뷰 답변을 원문 그대로 프롬프트에 넣는다.
+
+    요약하지 않는다. 요약하는 순간 "3개월 안에 친구 4명이 30분 세션을 끊김 없이
+    도는 것"이 "멀티플레이어 게임"이 되고, 그 말이 계획에 남지 않는다.
+    """
+    answered = [t for t in turns if t.answer.strip()]
+    if not answered:
+        return ""
+    lines = ["", "사용자가 직접 답한 것 (원문이다. 계획은 이 말에 맞춰야 한다):"]
+    for turn in answered:
+        lines.append(f"Q. {turn.question}")
+        lines.append(f"A. {turn.answer}")
+    lines.append("")
+    lines.append(
+        "위 답에 나온 낱말과 범위를 계획에 그대로 반영하라. "
+        "답에 없는 기능을 임의로 넣지 말고, 답에 있는 것을 빠뜨리지 마라."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def format_transcript(turns: list[InterviewTurn]) -> str:
+    """후속 질문용 문답 전문. 건너뛴 질문도 건너뛴 사실 그대로 보여준다."""
+    lines = []
+    for turn in turns:
+        lines.append(f"Q. {turn.question}")
+        lines.append(f"A. {turn.answer.strip() or '(답을 건너뛰었다)'}")
+    return "\n".join(lines)
+
+
 def format_violations(result: CriticResult) -> str:
     return "\n".join(f"- [{v.code}] {v.message}" for v in result.violations)
 
@@ -165,9 +211,12 @@ def format_previous(draft: PlanDraft) -> str:
     return "\n".join(lines)
 
 
-def decompose_prompt(goal_text: str, c: Constraints) -> str:
+def decompose_prompt(
+    goal_text: str, c: Constraints, interview: list[InterviewTurn] | None = None
+) -> str:
     return DECOMPOSE.format(
         goal_text=goal_text,
+        interview=format_interview(interview or []),
         duration_weeks=c.duration_weeks,
         hours_per_week=c.hours_per_week,
         capacity=c.weekly_capacity_minutes,

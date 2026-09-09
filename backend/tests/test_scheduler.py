@@ -7,7 +7,7 @@ from app.graphs.mock_planner import MockPlanner
 from app.graphs.plan_graph import build_plan_graph
 from app.models.schemas import Constraints
 from app.scheduler import build_scheduler
-from tests.helpers import seed_project
+from tests.helpers import drive_plan_graph, seed_project
 
 TODAY = date(2026, 9, 20)
 
@@ -46,8 +46,8 @@ async def test_목업_Planner_는_critic_을_통과하는_계획을_만든다():
     """API 키 없이도 데모가 끝까지 돈다."""
     planner = MockPlanner()
     graph = build_plan_graph(planner, max_retries=3)
-    result = await graph.ainvoke(
-        {"goal_text": "6주 안에 주당 12시간으로 앱 하나 만들기", "known": {}, "attempt": 0}
+    result = await drive_plan_graph(
+        graph, {"goal_text": "6주 안에 주당 12시간으로 앱 하나 만들기", "known": {}, "attempt": 0}
     )
 
     draft = result["draft"]
@@ -62,13 +62,13 @@ async def test_목업은_첫_분해에서_일부러_120분을_넘긴다():
     """critic 재시도 루프가 데모에서 실제로 보여야 한다."""
     planner = MockPlanner()
     graph = build_plan_graph(planner, max_retries=3)
-    await graph.ainvoke({"goal_text": "4주 프로젝트", "known": {}, "attempt": 0})
+    await drive_plan_graph(graph, {"goal_text": "4주 프로젝트", "known": {}, "attempt": 0})
     assert planner.calls.count("DecomposeResult") >= 2
 
 
 async def test_always_valid_목업은_한_번에_통과한다():
     planner = MockPlanner(always_valid=True)
     graph = build_plan_graph(planner, max_retries=3)
-    result = await graph.ainvoke({"goal_text": "4주 프로젝트", "known": {}, "attempt": 0})
+    result = await drive_plan_graph(graph, {"goal_text": "4주 프로젝트", "known": {}, "attempt": 0})
     assert planner.calls.count("DecomposeResult") == 1
     assert result["critic"].ok

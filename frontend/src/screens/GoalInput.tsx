@@ -1,27 +1,57 @@
-/** 목표 입력 화면 (SPEC §5). 자연어 입력 -> clarify 질문 -> 생성 진행 스트리밍. */
-import { useRef, useState } from "react";
+/** 목표 입력 → 인터뷰 → 생성 (SPEC §5, §3.3).
+ *
+ * 목표 한 줄로는 계획을 못 짠다. 목표를 받은 다음 **청사진부터 되묻는다.**
+ * 첫 질문이 이 제품의 첫인상이라, 그 질문은 LLM 이 아니라 코드가 고정한다
+ * (backend/app/graphs/interview.py).
+ *
+ * 답한 것은 원문 그대로 남아 계획을 만드는 프롬프트로 들어간다. 그래서 지난 문답을
+ * 화면에 계속 띄워 둔다 — 무엇을 근거로 이 계획이 나왔는지 사용자가 봐야 한다.
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, streamGeneration, type ClarifyQuestion, type StepEvent } from "../api";
+import {
+  api,
+  streamGeneration,
+  type ClarifyQuestion,
+  type InterviewTurn,
+  type StepEvent,
+} from "../api";
 
 interface Props {
   onCreated: (projectId: string) => void;
   onBack: () => void;
+  /** 인터뷰 도중 나갔던 프로젝트를 이어서 연다 (새로고침·재시작 복구). */
+  resumeProjectId?: string;
 }
 
-export function GoalInput({ onCreated, onBack }: Props) {
+export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const [goal, setGoal] = useState("");
   const [weeks, setWeeks] = useState("");
   const [hours, setHours] = useState("");
   const [stack, setStack] = useState("");
 
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(resumeProjectId ?? null);
   const [steps, setSteps] = useState<StepEvent[]>([]);
   const [questions, setQuestions] = useState<ClarifyQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answered, setAnswered] = useState<InterviewTurn[]>([]);
   const [repairs, setRepairs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const closeStream = useRef<(() => void) | null>(null);
+
+  /** 지금까지 답한 문답을 서버에서 읽어 온다. 답은 DB 에 있다. */
+  const loadTranscript = useCallback(async (id: string) => {
+    try {
+      const view = await api.getProject(id);
+      setAnswered(view.interview.filter((t) => t.answer.trim().length > 0));
+      if (view.generation.status === "awaiting_clarify") {
+        setQuestions(view.generation.questions);
+      }
+    } catch {
+      // 문답을 못 읽어도 질문에 답하는 것 자체는 막지 않는다.
+    }
+  }, []);
 
   const listen = (id: string) => {
     closeStream.current?.();
@@ -29,7 +59,9 @@ export function GoalInput({ onCreated, onBack }: Props) {
       onStep: (e) => setSteps((prev) => [...prev, e]),
       onClarify: (qs) => {
         setQuestions(qs);
+        setAnswers({});
         setRunning(false);
+        void loadTranscript(id);
       },
       onDone: (fixes) => {
         setRepairs(fixes);
@@ -42,6 +74,12 @@ export function GoalInput({ onCreated, onBack }: Props) {
       },
     });
   };
+
+  useEffect(() => {
+    // 이어서 열린 경우에만 서버에서 상태를 읽는다.
+    // oxlint-disable-next-line react/set-state-in-effect
+    if (resumeProjectId) void loadTranscript(resumeProjectId);
+  }, [resumeProjectId, loadTranscript]);
 
   const submit = async () => {
     setRunning(true);
@@ -67,9 +105,12 @@ export function GoalInput({ onCreated, onBack }: Props) {
     if (!projectId) return;
     setRunning(true);
     setSteps([]);
+    // 답을 비워 보낸 질문은 「건너뛰겠다」는 답이다. 서버가 같은 질문을 다시 묻지 않는다.
+    const payload: Record<string, string> = {};
+    for (const q of questions) payload[q.field] = answers[q.field] ?? "";
     setQuestions([]);
     try {
-      await api.submitClarify(projectId, answers);
+      await api.submitClarify(projectId, payload);
       listen(projectId);
     } catch (e) {
       setError(String(e));
@@ -77,46 +118,98 @@ export function GoalInput({ onCreated, onBack }: Props) {
     }
   };
 
+  const interviewing = questions.length > 0;
+
   return (
     <div className="goal-screen">
       <button className="ghost back" onClick={onBack}>
         ← 내 로드맵
       </button>
-      <h1>무엇을 만들 건가요?</h1>
-      <p className="lede">
-        목표를 적으면 주 · 태스크 · 티켓으로 쪼개고, 시스템 아키텍처를 같이 그립니다.
-      </p>
-
-      <textarea
-        value={goal}
-        onChange={(e) => setGoal(e.target.value)}
-        placeholder="예: 3개월 안에 코옵 멀티플레이어 게임 하나 출시"
-        disabled={running || !!projectId}
-      />
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="weeks">기간(주)</label>
-          <input id="weeks" value={weeks} onChange={(e) => setWeeks(e.target.value)}
-            placeholder="12" inputMode="numeric" disabled={running || !!projectId} />
-        </div>
-        <div className="field">
-          <label htmlFor="hours">주당 가용시간</label>
-          <input id="hours" value={hours} onChange={(e) => setHours(e.target.value)}
-            placeholder="10" inputMode="numeric" disabled={running || !!projectId} />
-        </div>
-        <div className="field">
-          <label htmlFor="stack">스택 (쉼표로 구분)</label>
-          <input id="stack" value={stack} onChange={(e) => setStack(e.target.value)}
-            placeholder="unity, c#" disabled={running || !!projectId} />
-        </div>
-      </div>
 
       {!projectId && (
-        <div className="actions">
-          <button className="primary" onClick={submit} disabled={goal.trim().length < 5 || running}>
-            {running ? "생성 중…" : "로드맵 만들기"}
-          </button>
-          <span className="hint">비워두면 목표 문장에서 추론하고, 애매하면 되묻습니다.</span>
+        <>
+          <h1>무엇을 만들 건가요?</h1>
+          <p className="lede">
+            한 줄로 적으면 됩니다. 자세한 건 바로 이어서 물어볼게요.
+          </p>
+
+          <textarea
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            placeholder="예: 3개월 안에 코옵 멀티플레이어 게임 하나 출시"
+            disabled={running}
+          />
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="weeks">기간(주)</label>
+              <input id="weeks" value={weeks} onChange={(e) => setWeeks(e.target.value)}
+                placeholder="12" inputMode="numeric" disabled={running} />
+            </div>
+            <div className="field">
+              <label htmlFor="hours">주당 가용시간</label>
+              <input id="hours" value={hours} onChange={(e) => setHours(e.target.value)}
+                placeholder="10" inputMode="numeric" disabled={running} />
+            </div>
+            <div className="field">
+              <label htmlFor="stack">스택 (쉼표로 구분)</label>
+              <input id="stack" value={stack} onChange={(e) => setStack(e.target.value)}
+                placeholder="unity, c#" disabled={running} />
+            </div>
+          </div>
+
+          <div className="actions">
+            <button className="primary" onClick={submit} disabled={goal.trim().length < 5 || running}>
+              {running ? "읽는 중…" : "시작하기"}
+            </button>
+            <span className="hint">비워두면 목표 문장에서 추론하고, 애매하면 되묻습니다.</span>
+          </div>
+        </>
+      )}
+
+      {projectId && interviewing && (
+        <>
+          <h1>몇 가지만 물어볼게요</h1>
+          <p className="lede">
+            여기 적은 말이 <b>그대로</b> 계획의 근거가 됩니다. 모르는 건 비워두고 넘어가도 됩니다.
+          </p>
+        </>
+      )}
+
+      {answered.length > 0 && (
+        <section className="transcript">
+          <h5>지금까지 답한 것</h5>
+          {answered.map((t) => (
+            <div className="turn" key={`${t.round}-${t.field}`}>
+              <p className="q">{t.question}</p>
+              <p className="a">{t.answer}</p>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {interviewing && (
+        <div className="interview">
+          {questions.map((q, i) => (
+            <div className="clarify-q" key={q.field}>
+              <label htmlFor={`q-${q.field}`}>
+                <span className="q-no">{i + 1}</span>
+                {q.question}
+              </label>
+              <textarea
+                id={`q-${q.field}`}
+                rows={q.field === "blueprint" ? 5 : 3}
+                value={answers[q.field] ?? ""}
+                onChange={(e) => setAnswers({ ...answers, [q.field]: e.target.value })}
+                disabled={running}
+              />
+            </div>
+          ))}
+          <div className="actions">
+            <button className="primary" onClick={sendAnswers} disabled={running}>
+              {running ? "읽는 중…" : "이어서 만들기"}
+            </button>
+            <span className="hint">비워둔 질문은 건너뜁니다. 다시 묻지 않아요.</span>
+          </div>
         </div>
       )}
 
@@ -142,24 +235,6 @@ export function GoalInput({ onCreated, onBack }: Props) {
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {questions.length > 0 && (
-        <div className="notice">
-          <h4>몇 가지만 확인할게요</h4>
-          {questions.map((q) => (
-            <div className="clarify-q" key={q.field}>
-              <p>{q.question}</p>
-              <input
-                value={answers[q.field] ?? ""}
-                onChange={(e) => setAnswers({ ...answers, [q.field]: e.target.value })}
-              />
-            </div>
-          ))}
-          <button className="primary" onClick={sendAnswers} disabled={running}>
-            이어서 만들기
-          </button>
         </div>
       )}
 

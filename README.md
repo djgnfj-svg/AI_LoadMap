@@ -18,12 +18,13 @@ docs/SPEC.md                   기준 문서 (§0 불변 규칙 R1~R6 포함)
 supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 뷰
                                0003 이 계층을 주 > 태스크 > 티켓으로 바꾼다
                                0004 가 users 를 넣고 프로젝트에 주인을 붙인다
+                               0005 가 인터뷰 문답을 프로젝트에 붙인다
 scripts/setup.sh               로컬 세팅 한 방
 scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
   src/screens/Login.tsx        구글 로그인 (또는 데모 계정)
   src/screens/ProjectList.tsx  내 로드맵 목록
-  src/screens/GoalInput.tsx    목표 입력 → clarify → SSE 진행
+  src/screens/GoalInput.tsx    목표 입력 → 인터뷰(청사진부터) → SSE 진행
   src/screens/Main.tsx         2분할 + 양방향 하이라이트
   src/screens/ReviewSession.tsx 재점검 세션 (집계 → 진단 → diff → 승인)
   src/components/ArchNode.tsx  §2.5 노드 상태 4종 렌더
@@ -31,8 +32,9 @@ backend/
   scripts/seed_self.py         이 프로젝트 자신의 로드맵을 시드로 (§6.2 백필 기반)
   app/graphs/                  LangGraph 생성 그래프
     critic.py                  검증 (LLM 미개입) — 이 그래프의 존재 이유
+    interview.py               1라운드 고정 질문 (LLM 미개입) + 답변 → 제약 반영
     repair.py                  재시도 소진 시 결정적 복구
-    plan_graph.py              intake → clarify → decompose → architect → link → critic → emit
+    plan_graph.py              intake → interview → decompose → architect → link → critic → emit
     replan_graph.py            collect_signals → diagnose → replan_scope → propose → critic → diff
     replan.py                  제안 → 승인 단위 변환 (순환·120분 위반은 여기서 걸러낸다)
     persist.py                 emit — 검증된 초안을 DB 로
@@ -145,7 +147,7 @@ cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 125개
+.venv/bin/python -m pytest -q          # 134개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend
@@ -193,7 +195,7 @@ TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 | GET | `/projects` | 내 로드맵 목록 |
 | POST | `/projects` | 목표 입력 → 생성 그래프 시작 |
 | GET | `/projects/{id}/stream` | SSE, 그래프 진행 상황 |
-| POST | `/projects/{id}/clarify` | clarify 응답 제출 |
+| POST | `/projects/{id}/clarify` | 인터뷰 답변 제출 (새로고침·재시작 뒤에도 이어진다) |
 | GET | `/projects/{id}` | 로드맵 + 아키텍처 + 노드 상태 |
 | PATCH | `/tickets/{id}` | `start` / `complete` / `block` / `unblock` / `defer` |
 | POST | `/tickets/{id}/block` | 막힘 사유 한 줄 입력 |
