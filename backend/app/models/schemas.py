@@ -11,7 +11,12 @@ from pydantic import BaseModel, Field
 Level = Literal["beginner", "intermediate", "advanced"]
 NodeType = Literal["service", "store", "client", "external"]
 Layer = Literal["frontend", "backend", "data", "infra"]
-TicketStatus = Literal["todo", "doing", "done", "blocked"]
+# 태스크와 티켓이 같은 낱말을 쓴다.
+# ⚠ 「막힘」은 여기 없다 — parked 는 접힘(의도적으로 미룸)이지 막힘이 아니다.
+# 막힘은 상태가 아니라 blocked_reason 한 줄과 blocked 이벤트가 든다.
+WorkStatus = Literal["open", "claimed", "resolved", "parked"]
+TicketStatus = WorkStatus
+TaskStatus = WorkStatus
 NodeStatus = Literal["pending", "in_progress", "done", "at_risk"]
 EventType = Literal["created", "started", "completed", "missed", "deferred", "blocked"]
 Diagnosis = Literal["지식부족", "범위과다", "의존성누락", "외부요인"]
@@ -57,24 +62,28 @@ class ClarifyResult(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # 초안 트리 (SPEC §2.1)
 # ─────────────────────────────────────────────────────────────
-class DraftMilestone(BaseModel):
-    key: str
-    order_index: int
-    title: str
-    description: str
-
-
 class DraftWeeklyGoal(BaseModel):
+    """주 — 관리 단위이자 최상위."""
+
     key: str
-    milestone_key: str
     week_index: int = Field(ge=1)
     title: str
 
 
-class DraftTicket(BaseModel):
+class DraftTask(BaseModel):
+    """태스크 — 한 덩어리로 묶이는 티켓들의 집. 한 태스크는 한 주에만 산다."""
+
     key: str
     weekly_goal_key: str
-    order_index: int
+    task_number: int = Field(ge=1)  # 프로젝트 안에서 전역으로 센다
+    title: str
+    description: str
+
+
+class DraftTicket(BaseModel):
+    key: str
+    task_key: str
+    ticket_number: int = Field(ge=1)  # 태스크마다 01 부터 다시 센다
     title: str
     # SPEC §2.2 티켓 본문 포맷 — 무엇을 / 완료 조건 / 참고
     body: str
@@ -83,8 +92,8 @@ class DraftTicket(BaseModel):
 
 
 class DecomposeResult(BaseModel):
-    milestones: list[DraftMilestone]
     weekly_goals: list[DraftWeeklyGoal]
+    tasks: list[DraftTask]
     tickets: list[DraftTicket]
 
 
@@ -118,8 +127,8 @@ class LinkResult(BaseModel):
 class PlanDraft(BaseModel):
     """생성 그래프가 굴리는 계획 초안 전체."""
 
-    milestones: list[DraftMilestone] = []
     weekly_goals: list[DraftWeeklyGoal] = []
+    tasks: list[DraftTask] = []
     tickets: list[DraftTicket] = []
     nodes: list[DraftNode] = []
     edges: list[DraftEdge] = []
@@ -210,7 +219,7 @@ ChangeType = Literal[
     "reduce_ticket",    # 범위과다 — 목표 범위 축소
     "drop_ticket",      # 범위과다 — 이번 범위에서 제외
     "add_dependency",   # 의존성누락 — 순서 교체
-    "shift_milestone",  # 외부요인 — 일정만 이월, 내용 유지
+    "shift_week",       # 외부요인 — 일정만 이월, 내용 유지
 ]
 
 
@@ -223,14 +232,14 @@ class ProposedChange(BaseModel):
     """LLM 이 내는 제안 한 건. 티켓은 uuid 대신 T1, T2 같은 참조로 가리킨다."""
 
     type: ChangeType
-    target_ref: str      # 대상 티켓 참조 (add_ticket/shift_milestone 은 빈 문자열)
+    target_ref: str      # 대상 티켓 참조 (add_ticket/shift_week 은 빈 문자열)
     depends_on_ref: str  # add_dependency / add_ticket 의 선행 티켓 참조
     reason: str
     title: str           # add_ticket, reduce_ticket
     body: str
     est_minutes: int     # add_ticket, reduce_ticket
     parts: list[SplitPart]  # split_ticket
-    shift_days: int      # shift_milestone
+    shift_days: int      # shift_week
 
 
 class ReplanProposal(BaseModel):
@@ -253,8 +262,8 @@ class ReplanDiff(BaseModel):
     signals: ReplanSignals
     diagnosis: Diagnosis
     rationale: str
-    scope_milestone_id: str
-    scope_milestone_title: str
+    scope_weekly_goal_id: str
+    scope_weekly_goal_title: str
     changes: list[ReplanChange]
     residual_violations: list[Violation] = []
     repairs: list[str] = []

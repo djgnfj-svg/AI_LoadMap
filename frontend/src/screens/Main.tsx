@@ -84,7 +84,7 @@ export function Main({ projectId, onBack, onOpenReview }: Props) {
     setSelectedTicketId(t.id === selectedTicketId ? null : t.id);
     setShowAlerts(false);
   };
-  const toggleDone = (t: Ticket) => void act(t, t.status === "done" ? "start" : "complete");
+  const toggleDone = (t: Ticket) => void act(t, t.status === "resolved" ? "start" : "complete");
 
   if (error) return <div className="empty">불러오지 못했습니다: {error}</div>;
   if (!view) return <div className="empty">불러오는 중…</div>;
@@ -104,7 +104,7 @@ export function Main({ projectId, onBack, onOpenReview }: Props) {
     );
   }
 
-  const doneCount = view.tickets.filter((t) => t.status === "done").length;
+  const doneCount = view.tickets.filter((t) => t.status === "resolved").length;
   const atRisk = view.arch_nodes.filter((n) => n.computed_status === "at_risk");
   const selectedTicket = view.tickets.find((t) => t.id === selectedTicketId) ?? null;
   const selectedNode = view.arch_nodes.find((n) => n.id === selectedNodeId) ?? null;

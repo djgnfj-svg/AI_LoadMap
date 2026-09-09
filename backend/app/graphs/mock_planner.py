@@ -25,7 +25,7 @@ from app.models.schemas import (
     DiagnoseResult,
     DraftEdge,
     DraftLink,
-    DraftMilestone,
+    DraftTask,
     DraftNode,
     DraftTicket,
     DraftWeeklyGoal,
@@ -132,17 +132,15 @@ class MockPlanner:
         # 첫 호출은 일부러 120분을 넘겨 낸다 — critic 재시도가 데모에서 보여야 한다.
         first_try = self.calls.count("DecomposeResult") == 1 and not self.always_valid
 
-        milestones, goals, tickets = [], [], []
+        goals, tasks, tickets = [], [], []
         weeks_per_phase = max(1, math.ceil(weeks / len(_PHASES)))
         week = 1
         ticket_no = 0
+        task_no = 0
 
-        for i, (phase, desc) in enumerate(_PHASES, start=1):
+        for _i, (phase, desc) in enumerate(_PHASES, start=1):
             if week > weeks:
                 break
-            milestones.append(
-                DraftMilestone(key=f"m{i}", order_index=i, title=phase, description=desc)
-            )
             for _ in range(weeks_per_phase):
                 if week > weeks:
                     break
@@ -150,13 +148,24 @@ class MockPlanner:
                 goals.append(
                     DraftWeeklyGoal(
                         key=goal_key,
-                        milestone_key=f"m{i}",
                         week_index=week,
-                        title=f"{week}주차 - {phase}",
+                        title=f"{week}주 - {phase}",
+                    )
+                )
+                # 주마다 태스크 하나. 번호는 프로젝트 전체에서 이어 센다.
+                task_no += 1
+                task_key = f"k{task_no}"
+                tasks.append(
+                    DraftTask(
+                        key=task_key,
+                        weekly_goal_key=goal_key,
+                        task_number=task_no,
+                        title=f"{phase} ({week}주)",
+                        description=desc,
                     )
                 )
                 used = 0
-                order = 0
+                number = 0
                 while used < capacity * 0.7:
                     title, minutes = _TASKS[ticket_no % len(_TASKS)]
                     if first_try and ticket_no % 3 == 0:
@@ -164,13 +173,13 @@ class MockPlanner:
                     if used + minutes > capacity:
                         break
                     ticket_no += 1
-                    order += 1
+                    number += 1  # 태스크마다 1 부터 다시 센다
                     tickets.append(
                         DraftTicket(
                             key=f"t{ticket_no}",
-                            weekly_goal_key=goal_key,
-                            order_index=order,
-                            title=f"{title} ({week}주차)",
+                            task_key=task_key,
+                            ticket_number=number,
+                            title=f"{title} ({week}주)",
                             body=(
                                 f"## 무엇을\n{title}\n\n"
                                 "## 완료 조건\n- [ ] 테스트 통과\n- [ ] 리뷰 반영\n\n"
@@ -182,7 +191,7 @@ class MockPlanner:
                     )
                     used += minutes
                 week += 1
-        return DecomposeResult(milestones=milestones, weekly_goals=goals, tickets=tickets)
+        return DecomposeResult(weekly_goals=goals, tasks=tasks, tickets=tickets)
 
     def _ArchitectResult(self, prompt: str) -> ArchitectResult:  # noqa: N802
         return ArchitectResult(
@@ -283,7 +292,7 @@ class MockPlanner:
                 ref, _w, title, _m, _s = open_rows[-1]
                 changes.append(ProposedChange(**blank(
                     type="drop_ticket", target_ref=ref,
-                    reason="이번 마일스톤에 꼭 필요하지 않다. 뒤로 미룬다",
+                    reason="이번 주에 꼭 필요하지 않다. 뒤로 미룬다",
                 )))
 
         elif diagnosis == "의존성누락":
@@ -307,7 +316,7 @@ class MockPlanner:
 
         else:  # 외부요인 — 일정만 이월, 내용 유지
             changes.append(ProposedChange(**blank(
-                type="shift_milestone", shift_days=7,
+                type="shift_week", shift_days=7,
                 reason="계획 문제가 아니다. 내용은 그대로 두고 일정만 민다",
             )))
 

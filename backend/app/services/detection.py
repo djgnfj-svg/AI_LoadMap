@@ -66,7 +66,7 @@ async def record_missed_tickets(
         """
         select t.id, t.project_id, t.due_date
         from tickets t
-        where t.status <> 'done'
+        where t.status <> 'resolved'
           and t.due_date is not null
           and t.due_date < $1
           and ($2::uuid is null or t.project_id = $2)
@@ -180,7 +180,7 @@ async def tickets_deferred_twice(
         select t.id, t.title, t.est_minutes, count(e.id) as defers
         from tickets t
         join events e on e.ticket_id = t.id and e.type = 'deferred'
-        where t.project_id = $1 and t.status <> 'done'
+        where t.project_id = $1 and t.status <> 'resolved'
         group by t.id, t.title, t.est_minutes
         having count(e.id) >= $2
         """,
@@ -195,9 +195,10 @@ async def weekly_completion(
     """SPEC §2.3 — 주간 완료율."""
     row = await conn.fetchrow(
         """
-        select count(*) as total, count(*) filter (where t.status = 'done') as done
+        select count(*) as total, count(*) filter (where t.status = 'resolved') as done
         from tickets t
-        join weekly_goals g on g.id = t.weekly_goal_id
+        join tasks k        on k.id = t.task_id
+        join weekly_goals g on g.id = k.weekly_goal_id
         where t.project_id = $1 and g.week_index = $2
         """,
         project_id,

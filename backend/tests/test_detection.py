@@ -22,7 +22,7 @@ async def test_마감_지난_티켓에_missed_를_남긴다(conn):
         "select delay_count, status from tickets where id = $1", p.tickets[0]
     )
     assert row["delay_count"] == 1
-    assert row["status"] == "todo"  # R4 — missed 는 상태가 아니다
+    assert row["status"] == "open"  # R4 — missed 는 상태가 아니다
 
     event = await conn.fetchrow(
         "select * from events where ticket_id = $1 and type = 'missed'", p.tickets[0]
@@ -66,7 +66,7 @@ async def test_기한을_옮기면_새_마감일에_다시_기록된다(conn):
 async def test_완료된_티켓은_건너뛴다(conn):
     p = await seed_project(conn, start=date(2026, 9, 1))
     await conn.execute(
-        "update tickets set due_date = $2, status = 'done' where id = $1",
+        "update tickets set due_date = $2, status = 'resolved' where id = $1",
         p.tickets[0],
         TODAY - timedelta(days=5),
     )
@@ -140,7 +140,7 @@ async def test_동일_티켓_2회_연기를_잡는다(conn):
 
 async def test_주간_완료율을_센다(conn):
     p = await seed_project(conn, start=date(2026, 9, 1))
-    await conn.execute("update tickets set status = 'done' where id = $1", p.tickets[0])
+    await conn.execute("update tickets set status = 'resolved' where id = $1", p.tickets[0])
     result = await detection.weekly_completion(conn, p.project_id, 1)
     assert (result.total, result.done) == (3, 1)
     assert result.rate == pytest.approx(1 / 3)

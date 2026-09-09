@@ -16,6 +16,7 @@
 ```
 docs/SPEC.md                   기준 문서 (§0 불변 규칙 R1~R6 포함)
 supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 뷰
+                               0003 이 계층을 주 > 태스크 > 티켓으로 바꾼다
 scripts/setup.sh               로컬 세팅 한 방
 scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
@@ -42,13 +43,31 @@ backend/
   tests/                       critic / repair / 그래프 / 저장 / API
 ```
 
+## 계층
+
+```
+프로젝트
+  └─ 주        관리 단위이자 최상위. 그 주 마지막 저녁에 화면에 무엇이 있는가
+      └─ 태스크  한 덩어리로 묶이는 티켓들의 집. 한 태스크는 한 주에만 산다
+          └─ 티켓  실행 단위. 여기서만 실패가 측정된다
+```
+
+티켓을 부르는 이름은 두 겹이다 — `08-03` 은 8번 태스크의 셋째 티켓.
+**티켓 번호는 태스크마다 01부터 다시 센다.** 그래서 태스크가 없으면 번호도 없다.
+
+상태 낱말은 넷이고 태스크와 티켓이 같은 것을 쓴다:
+`open` · `claimed` · `resolved` · `parked`.
+⚠ **「막힘」은 상태가 아니다.** `parked` 는 접힘이지 막힘이 아니다. 막힌 티켓은
+`claimed` 로 남고 `blocked_reason` 한 줄이 붙는다 — 상태 한 낱말과 막힘 한 줄은
+별개의 사실이고, 섞으면 둘 다 못 읽는다.
+
 ## 설계상 지키는 것
 
 | 규칙 | 코드에서 강제되는 지점 |
 |---|---|
 | R1 티켓 ≤ 120분 | `tickets.est_minutes` CHECK 제약 + `critic.py` + 실패 시 `repair.py` 자동 재분할 |
 | R2 감지는 SQL만 | `detection.py` · `alerts.py` · `v_node_status` 뷰에 LLM 호출이 없다. AI 는 `diagnose`/`propose` 두 노드에만 등장한다 |
-| R3 재설계는 마일스톤 1개 | `replan_scope` 가 지연이 가장 많은 마일스톤 하나만 고른다 |
+| R3 재설계는 주 1개 | `replan_scope` 가 지연이 가장 많은 주 하나만 고른다 |
 | R4 `missed`는 이벤트 | `defer` 는 `delay_count` 만 올리고 `status` 는 유지. 같은 마감일에 두 번 기록하지 않는다 |
 | R5 알람은 진단 | "netcode 쪽에서 3번 멈췄어요. 다시 짤까요?" — 문구가 기능이다 |
 

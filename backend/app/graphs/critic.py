@@ -55,26 +55,30 @@ def _find_cycle(edges: dict[str, list[str]]) -> list[str] | None:
 def run_critic(draft: PlanDraft, constraints: Constraints) -> CriticResult:
     violations: list[Violation] = []
 
-    if not draft.tickets or not draft.milestones:
+    if not draft.tickets or not draft.weekly_goals or not draft.tasks:
         violations.append(
             Violation(
                 code="empty_plan",
-                message="마일스톤 또는 티켓이 비어 있다.",
+                message="주, 태스크, 티켓 중 비어 있는 것이 있다.",
             )
         )
         return CriticResult(ok=False, violations=violations)
 
-    milestone_keys = {m.key for m in draft.milestones}
     goal_keys = {g.key for g in draft.weekly_goals}
+    task_keys = {k.key for k in draft.tasks}
     ticket_keys = {t.key for t in draft.tickets}
     node_keys = {n.node_key for n in draft.nodes}
 
     # ── 중복 키 ────────────────────────────────────────────────
+    # 번호도 키다. 겹치면 emit 에서 unique 제약으로 터진다 — 터지기 전에 잡는다.
+    ticket_numbers = [f"{t.task_key}-{t.ticket_number}" for t in draft.tickets]
     for label, items in (
-        ("milestone", [m.key for m in draft.milestones]),
         ("weekly_goal", [g.key for g in draft.weekly_goals]),
+        ("task", [k.key for k in draft.tasks]),
         ("ticket", [t.key for t in draft.tickets]),
         ("arch_node", [n.node_key for n in draft.nodes]),
+        ("task_number", [str(k.task_number) for k in draft.tasks]),
+        ("ticket_number", ticket_numbers),
     ):
         counts = Counter(items)
         dupes = sorted(k for k, n in counts.items() if n > 1)
@@ -104,12 +108,12 @@ def run_critic(draft: PlanDraft, constraints: Constraints) -> CriticResult:
 
     # ── 끊긴 참조 ──────────────────────────────────────────────
     dangling: list[str] = []
-    for g in draft.weekly_goals:
-        if g.milestone_key not in milestone_keys:
-            dangling.append(f"weekly_goal {g.key} -> milestone {g.milestone_key}")
+    for k in draft.tasks:
+        if k.weekly_goal_key not in goal_keys:
+            dangling.append(f"task {k.key} -> weekly_goal {k.weekly_goal_key}")
     for t in draft.tickets:
-        if t.weekly_goal_key not in goal_keys:
-            dangling.append(f"ticket {t.key} -> weekly_goal {t.weekly_goal_key}")
+        if t.task_key not in task_keys:
+            dangling.append(f"ticket {t.key} -> task {t.task_key}")
         for dep in t.depends_on:
             if dep not in ticket_keys:
                 dangling.append(f"ticket {t.key} -> depends_on {dep}")
@@ -141,10 +145,12 @@ def run_critic(draft: PlanDraft, constraints: Constraints) -> CriticResult:
         )
 
     # ── 3. 주간 티켓 합계 <= 가용시간 ──────────────────────────
+    # 티켓이 사는 주는 티켓이 든 태스크가 말한다 — 한 태스크는 한 주에만 산다.
     goal_week = {g.key: g.week_index for g in draft.weekly_goals}
+    task_week = {k.key: goal_week.get(k.weekly_goal_key) for k in draft.tasks}
     week_minutes: dict[int, int] = defaultdict(int)
     for t in draft.tickets:
-        week = goal_week.get(t.weekly_goal_key)
+        week = task_week.get(t.task_key)
         if week is not None:
             week_minutes[week] += t.est_minutes
 

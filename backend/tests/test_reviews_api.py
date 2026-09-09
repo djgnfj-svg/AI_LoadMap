@@ -59,7 +59,7 @@ async def _prepare(dsn) -> tuple[str, str]:
                 TODAY - timedelta(days=3),
             )
         await conn.execute(
-            "update tickets set status = 'blocked', blocked_reason = $2 where id = $1",
+            "update tickets set status = 'claimed', blocked_reason = $2 where id = $1",
             p.tickets[0],
             "방법을 모르겠다",
         )

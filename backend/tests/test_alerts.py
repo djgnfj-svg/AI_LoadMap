@@ -113,7 +113,7 @@ async def test_주간_완료율_50퍼센트_미만이면_리뷰를_건다(conn):
 async def test_완료율이_높으면_주간_리뷰를_걸지_않는다(conn):
     p = await seed_project(conn, start=date(2026, 9, 15))
     for ticket_id in p.tickets[:3]:  # 1주차 티켓 전부 완료
-        await conn.execute("update tickets set status = 'done' where id = $1", ticket_id)
+        await conn.execute("update tickets set status = 'resolved' where id = $1", ticket_id)
     assert await alerts.generate_weekly_review(conn, p.project_id, date(2026, 9, 20)) == 0
 
 

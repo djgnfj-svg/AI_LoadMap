@@ -70,7 +70,10 @@ async def _due_24h(conn: asyncpg.Connection, project_id: uuid.UUID, day: date) -
         select t.id, t.title, t.due_date
         from tickets t
         where t.project_id = $1
-          and t.status not in ('done', 'blocked')
+          -- 끝난 것과 접은 것은 묻지 않는다. 막힘 사유를 이미 적은 것도
+          -- 다시 묻지 않는다 — 막힘은 상태가 아니라 blocked_reason 한 줄이다.
+          and t.status not in ('resolved', 'parked')
+          and t.blocked_reason is null
           and t.due_date is not null
           and t.due_date < $2
         """,

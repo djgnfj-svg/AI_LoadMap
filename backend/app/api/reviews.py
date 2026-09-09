@@ -61,7 +61,7 @@ async def run_review(review_day_id: uuid.UUID, request: Request) -> dict:
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
 
-        if not ctx.milestones:
+        if not ctx.weeks:
             raise HTTPException(409, "재설계할 계획이 없다.")
 
         final = await graph.ainvoke({"context": ctx, "attempt": 0})
@@ -70,14 +70,14 @@ async def run_review(review_day_id: uuid.UUID, request: Request) -> dict:
         session_id = await conn.fetchval(
             """
             insert into replan_sessions
-              (review_day_id, project_id, diagnosis, scope_milestone_id, diff_json)
+              (review_day_id, project_id, diagnosis, scope_weekly_goal_id, diff_json)
             values ($1, $2, $3, $4, $5)
             returning id
             """,
             review_day_id,
             ctx.project_id,
             diff.diagnosis,
-            uuid.UUID(diff.scope_milestone_id),
+            uuid.UUID(diff.scope_weekly_goal_id),
             diff.model_dump(mode="json"),
         )
 

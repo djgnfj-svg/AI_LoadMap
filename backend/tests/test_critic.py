@@ -7,7 +7,7 @@ from app.models.schemas import (
     Constraints,
     DraftEdge,
     DraftLink,
-    DraftMilestone,
+    DraftTask,
     DraftNode,
     DraftTicket,
     DraftWeeklyGoal,
@@ -21,11 +21,11 @@ CONSTRAINTS = Constraints(
 
 def draft(**overrides) -> PlanDraft:
     base = dict(
-        milestones=[DraftMilestone(key="m1", order_index=1, title="M", description="")],
-        weekly_goals=[DraftWeeklyGoal(key="w1", milestone_key="m1", week_index=1, title="1주차")],
+        tasks=[DraftTask(key="k1", weekly_goal_key="w1", task_number=1, title="태스크", description="")],
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
         tickets=[
             DraftTicket(
-                key="t1", weekly_goal_key="w1", order_index=1,
+                key="t1", task_key="k1", ticket_number=1,
                 title="T", body="b", est_minutes=90, depends_on=[],
             )
         ],
@@ -48,13 +48,13 @@ def test_통과하는_초안은_ok():
 
 
 def test_빈_계획은_즉시_실패():
-    assert codes(draft(milestones=[], tickets=[])) == {"empty_plan"}
+    assert codes(draft(tasks=[], tickets=[])) == {"empty_plan"}
 
 
 def test_R1_120분_초과_티켓을_잡는다():
     d = draft(
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1,
+            DraftTicket(key="t1", task_key="k1", ticket_number=1,
                         title="인증 구현", body="b", est_minutes=121, depends_on=[])
         ]
     )
@@ -67,7 +67,7 @@ def test_R1_120분_초과_티켓을_잡는다():
 def test_정확히_120분은_통과():
     d = draft(
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1,
+            DraftTicket(key="t1", task_key="k1", ticket_number=1,
                         title="T", body="b", est_minutes=120, depends_on=[])
         ]
     )
@@ -77,9 +77,9 @@ def test_정확히_120분은_통과():
 def test_의존성_순환을_잡는다():
     d = draft(
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1,
+            DraftTicket(key="t1", task_key="k1", ticket_number=1,
                         title="A", body="b", est_minutes=60, depends_on=["t2"]),
-            DraftTicket(key="t2", weekly_goal_key="w1", order_index=2,
+            DraftTicket(key="t2", task_key="k1", ticket_number=2,
                         title="B", body="b", est_minutes=60, depends_on=["t1"]),
         ],
         links=[
@@ -93,7 +93,7 @@ def test_의존성_순환을_잡는다():
 def test_긴_순환도_잡는다():
     d = draft(
         tickets=[
-            DraftTicket(key=k, weekly_goal_key="w1", order_index=i, title=k,
+            DraftTicket(key=k, task_key="k1", ticket_number=i, title=k,
                         body="b", est_minutes=30, depends_on=[dep])
             for i, (k, dep) in enumerate([("t1", "t3"), ("t2", "t1"), ("t3", "t2")], start=1)
         ],
@@ -105,13 +105,13 @@ def test_긴_순환도_잡는다():
 def test_순환이_아닌_다이아몬드_의존은_통과():
     d = draft(
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1, title="A",
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
                         body="b", est_minutes=30, depends_on=[]),
-            DraftTicket(key="t2", weekly_goal_key="w1", order_index=2, title="B",
+            DraftTicket(key="t2", task_key="k1", ticket_number=2, title="B",
                         body="b", est_minutes=30, depends_on=["t1"]),
-            DraftTicket(key="t3", weekly_goal_key="w1", order_index=3, title="C",
+            DraftTicket(key="t3", task_key="k1", ticket_number=3, title="C",
                         body="b", est_minutes=30, depends_on=["t1"]),
-            DraftTicket(key="t4", weekly_goal_key="w1", order_index=4, title="D",
+            DraftTicket(key="t4", task_key="k1", ticket_number=4, title="D",
                         body="b", est_minutes=30, depends_on=["t2", "t3"]),
         ],
         links=[DraftLink(ticket_key=f"t{i}", node_key="api") for i in range(1, 5)],
@@ -125,9 +125,9 @@ def test_주간_가용시간_초과를_잡는다():
     )  # 주당 120분
     d = draft(
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1, title="A",
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
                         body="b", est_minutes=90, depends_on=[]),
-            DraftTicket(key="t2", weekly_goal_key="w1", order_index=2, title="B",
+            DraftTicket(key="t2", task_key="k1", ticket_number=2, title="B",
                         body="b", est_minutes=90, depends_on=[]),
         ],
         links=[
@@ -154,9 +154,9 @@ def test_고아_노드를_잡는다():
 def test_노드에_안_붙은_티켓을_잡는다():
     d = draft(
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1, title="A",
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
                         body="b", est_minutes=30, depends_on=[]),
-            DraftTicket(key="t2", weekly_goal_key="w1", order_index=2, title="B",
+            DraftTicket(key="t2", task_key="k1", ticket_number=2, title="B",
                         body="b", est_minutes=30, depends_on=[]),
         ]
     )
@@ -170,8 +170,16 @@ def test_노드에_안_붙은_티켓을_잡는다():
     "overrides",
     [
         {
-            "weekly_goals": [
-                DraftWeeklyGoal(key="w1", milestone_key="없음", week_index=1, title="X")
+            # k1 은 멀쩡하고, k9 만 없는 주를 가리킨다.
+            "tasks": [
+                DraftTask(
+                    key="k1", weekly_goal_key="w1", task_number=1,
+                    title="태스크", description="",
+                ),
+                DraftTask(
+                    key="k9", weekly_goal_key="없음", task_number=9,
+                    title="X", description="",
+                ),
             ]
         },
         {"edges": [DraftEdge(from_key="api", to_key="없음", label="")]},
@@ -190,9 +198,9 @@ def test_끊긴_참조를_잡는다(overrides):
 def test_중복_키를_잡는다():
     d = draft(
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1, title="A",
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="A",
                         body="b", est_minutes=30, depends_on=[]),
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=2, title="B",
+            DraftTicket(key="t1", task_key="k1", ticket_number=2, title="B",
                         body="b", est_minutes=30, depends_on=[]),
         ]
     )

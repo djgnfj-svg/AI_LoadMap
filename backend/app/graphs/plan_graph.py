@@ -99,7 +99,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
             prompt += "\n\n" + prompts.DECOMPOSE_RETRY.format(
                 violations=prompts.format_violations(critic),
                 previous=prompts.format_previous(previous),
-                n_ms=len(previous.milestones),
+                n_ms=len(previous.tasks),
                 n_wg=len(previous.weekly_goals),
                 n_tk=len(previous.tickets),
             )
@@ -110,8 +110,8 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
         draft = state.get("draft") or PlanDraft()
         draft = draft.model_copy(
             update={
-                "milestones": result.milestones,
                 "weekly_goals": result.weekly_goals,
+                "tasks": result.tasks,
                 "tickets": result.tickets,
             }
         )
@@ -121,16 +121,13 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
     async def architect(state: PlanState) -> dict:
         constraints: Constraints = state["constraints"]
         draft: PlanDraft = state["draft"]
-        milestone_text = "\n".join(
-            f"- {m.key} {m.title}: {m.description}"
-            for m in sorted(draft.milestones, key=lambda x: x.order_index)
-        )
+        plan_text = prompts.format_previous(draft)
         result: ArchitectResult = await planner.structured(
             system=prompts.SYSTEM,
             prompt=prompts.ARCHITECT.format(
                 goal_text=state["goal_text"],
                 stack=", ".join(constraints.stack) or "미정",
-                milestones=milestone_text,
+                plan=plan_text,
             ),
             output_model=ArchitectResult,
         )

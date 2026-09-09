@@ -24,7 +24,7 @@ async def _review_context(conn, *, blocked_reason: str | None = None, deferred: 
 
     if blocked_reason:
         await conn.execute(
-            "update tickets set status = 'blocked', blocked_reason = $2 where id = $1",
+            "update tickets set status = 'claimed', blocked_reason = $2 where id = $1",
             p.tickets[0],
             blocked_reason,
         )
@@ -76,14 +76,14 @@ async def test_미룬_횟수가_많으면_범위과다로_진단하고_재분할
     assert "split_ticket" in {c.type for c in diff.changes}
 
 
-async def test_범위는_마일스톤_한_개다(conn):
+async def test_범위는_주_한_개다(conn):
     """R3 — 전체를 다시 그리면 사용자가 자기 계획이라고 느끼지 않는다."""
     _p, ctx = await _review_context(conn, blocked_reason="막힘")
     diff = await _run(ctx)
 
-    scope_ids = {ctx.tickets[t]["milestone_id"] for t in ctx.tickets}
-    assert len(scope_ids) > 1  # 시드에 마일스톤이 둘 이상 있고
-    assert diff.scope_milestone_id in scope_ids  # 재설계는 그중 하나만 건드린다
+    scope_ids = {ctx.tickets[t]["weekly_goal_id"] for t in ctx.tickets}
+    assert len(scope_ids) > 1  # 시드에 주가 둘 이상 있고
+    assert diff.scope_weekly_goal_id in scope_ids  # 재설계는 그중 하나만 건드린다
 
 
 async def test_변경은_critic_을_통과한_것만_남는다(conn):
@@ -108,7 +108,7 @@ async def test_진단과_처방이_짝을_이룬다(conn):
     diff = await _run(ctx)
 
     if diff.diagnosis == "외부요인":
-        assert {c.type for c in diff.changes} <= {"shift_milestone"}
+        assert {c.type for c in diff.changes} <= {"shift_week"}
 
 
 @pytest.mark.parametrize("retries", [0, 2])

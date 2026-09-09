@@ -22,7 +22,7 @@ const TYPE_LABEL: Record<string, string> = {
   reduce_ticket: "범위 축소",
   drop_ticket: "제외",
   add_dependency: "순서",
-  shift_milestone: "일정 이월",
+  shift_week: "일정 이월",
 };
 
 export function ReviewSession({ reviewDayId, onBack, onApplied }: Props) {
@@ -174,7 +174,7 @@ export function ReviewSession({ reviewDayId, onBack, onApplied }: Props) {
           <section className="review-step">
             <h4>
               <span className="step-no">3</span> 무엇을 바꿀까
-              <span className="tag">범위: {diff.scope_milestone_title}</span>
+              <span className="tag">범위: {diff.scope_weekly_goal_title}</span>
             </h4>
 
             {diff.residual_violations.length > 0 && (

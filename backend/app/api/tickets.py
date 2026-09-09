@@ -1,6 +1,11 @@
 """티켓 API (SPEC §3.5, §4.3 상태 전이).
 
 `missed` 는 여기 없다. 상태가 아니라 스케줄러가 남기는 이벤트다 (R4).
+
+⚠ 「막힘」도 상태가 아니다. 상태 낱말은 open·claimed·resolved·parked 넷뿐이고,
+parked 는 접힘(의도적으로 미룸)이지 막힘이 아니다. 막혔다는 것은 잡고 있다가
+멈췄다는 뜻이라 status 는 claimed 로 두고, 사유를 blocked_reason 한 줄이 든다.
+"막힌 티켓"을 찾는 쪽은 status 가 아니라 blocked_reason 을 본다.
 """
 
 import uuid
@@ -12,15 +17,16 @@ from app import db
 from app.models.schemas import TicketPatchRequest
 from app.services.events import record_event
 from app.services.node_status import sync_node_status
+from app.services.task_status import sync_task_status
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 # action -> (다음 status, 남길 이벤트). None 이면 status 를 바꾸지 않는다.
 _TRANSITIONS: dict[str, tuple[str | None, str]] = {
-    "start": ("doing", "started"),
-    "complete": ("done", "completed"),
-    "block": ("blocked", "blocked"),
-    "unblock": ("doing", "started"),
+    "start": ("claimed", "started"),
+    "complete": ("resolved", "completed"),
+    "block": ("claimed", "blocked"),   # 상태는 그대로 잡고 있는 것. 사유만 붙는다
+    "unblock": ("claimed", "started"),
     "defer": (None, "deferred"),  # 연기해도 status 는 유지된다 (R4)
 }
 
@@ -49,7 +55,7 @@ async def patch_ticket(ticket_id: uuid.UUID, req: TicketPatchRequest) -> dict:
             )
         elif req.action == "complete":
             await conn.execute(
-                "update tickets set status = 'done', completed_at = now(), "
+                "update tickets set status = 'resolved', completed_at = now(), "
                 "blocked_reason = null where id = $1",
                 ticket_id,
             )
@@ -57,7 +63,7 @@ async def patch_ticket(ticket_id: uuid.UUID, req: TicketPatchRequest) -> dict:
             if not req.reason:
                 raise HTTPException(400, "막힘 사유가 필요하다.")
             await conn.execute(
-                "update tickets set status = 'blocked', blocked_reason = $2 where id = $1",
+                "update tickets set status = 'claimed', blocked_reason = $2 where id = $1",
                 ticket_id,
                 req.reason,
             )
@@ -83,6 +89,8 @@ async def patch_ticket(ticket_id: uuid.UUID, req: TicketPatchRequest) -> dict:
         )
         # SPEC §2.5 — 티켓 완료가 즉시 노드 상태로 반영된다.
         changed = await sync_node_status(conn, project_id)
+        # 태스크 상태도 그 안의 티켓에서 되읽는다 (§2.1).
+        tasks_changed = await sync_task_status(conn, project_id)
         updated = await conn.fetchrow("select * from tickets where id = $1", ticket_id)
 
     return {
@@ -94,6 +102,7 @@ async def patch_ticket(ticket_id: uuid.UUID, req: TicketPatchRequest) -> dict:
             "blocked_reason": updated["blocked_reason"],
         },
         "node_changes": changed,
+        "task_changes": tasks_changed,
     }
 
 

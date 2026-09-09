@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import type { ProjectView, Ticket } from "../api";
 import { daysBetween, selectTodayFocus } from "../today";
+import { ticketNumber } from "../tickets";
 import { TicketRow } from "./TicketBoard";
 
 interface Props {
@@ -33,10 +34,13 @@ export function TodayFocus({
   const over = plan.plannedMinutes > plan.capacityMinutes;
   const fill = Math.min(100, (plan.plannedMinutes / plan.capacityMinutes) * 100);
 
+  // 티켓 번호는 그 티켓이 든 태스크가 말한다 (NN-MM).
+  const taskById = new Map(view.tasks.map((k) => [k.id, k]));
   const row = (t: Ticket, extra?: ReactNode) => (
     <TicketRow
       key={t.id}
       ticket={t}
+      number={ticketNumber(t.task_id ? taskById.get(t.task_id) : undefined, t)}
       selected={selectedTicketId === t.id}
       onSelect={onSelectTicket}
       onToggleDone={onToggleDone}

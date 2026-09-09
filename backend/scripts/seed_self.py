@@ -25,12 +25,13 @@ from app.models.schemas import (  # noqa: E402
     Constraints,
     DraftEdge,
     DraftLink,
-    DraftMilestone,
     DraftNode,
+    DraftTask,
     DraftTicket,
     DraftWeeklyGoal,
     PlanDraft,
 )
+from app.services.task_status import sync_task_status  # noqa: E402
 
 TITLE = "Roadmap Planner"
 GOAL = (
@@ -77,7 +78,7 @@ EDGES = [
     ("api", "deploy", "공개 URL"),
 ]
 
-# (key, 마일스톤, 주차, 제목, 예상분, 노드들, 선행, 완료여부, 완료일차)
+# (key, 태스크, 주, 제목, 예상분, 노드들, 선행, 완료여부, 완료일차)
 TICKETS = [
     ("t01", "m1", 1, "Supabase 스키마 11개 테이블 작성", 90, ["db"], [], True, 1),
     ("t02", "m1", 1, "노드 상태 계산 뷰(v_node_status) 작성", 45, ["db"], ["t01"], True, 1),
@@ -91,7 +92,7 @@ TICKETS = [
     ("t10", "m1", 1, "재시도 소진 시 결정적 재분할", 120, ["critic"], ["t09"], True, 3),
     ("t11", "m2", 1, "Vite + React 스캐폴딩, API 클라이언트", 60, ["board"], ["t04"], True, 4),
     ("t12", "m2", 1, "목표 입력 화면 + SSE 진행 표시", 120, ["goal_input"], ["t11"], True, 4),
-    ("t13", "m2", 1, "티켓 보드 (마일스톤 > 주차 > 티켓)", 120, ["board"], ["t11"], True, 4),
+    ("t13", "m2", 1, "티켓 보드 (주 > 태스크 > 티켓)", 120, ["board"], ["t11"], True, 4),
     ("t14", "m2", 1, "React Flow 커스텀 노드 상태 4종", 120, ["diagram"], ["t11"], True, 5),
     ("t15", "m2", 1, "티켓 완료 → 노드 상태 갱신", 90, ["diagram", "api"], ["t13", "t14"], True, 6),
     ("t16", "m2", 1, "티켓↔노드 양방향 하이라이트", 90, ["diagram", "board"], ["t15"], True, 6),
@@ -106,38 +107,43 @@ TICKETS = [
     ("t25", "m4", 2, "데모 영상 3분 촬영·편집", 120, ["deploy"], ["t24"], False, None),
 ]
 
-MILESTONES = [
-    ("m1", 1, "동작하는 백엔드", "스키마 · 생성 그래프 · critic 루프 (D1~D3)"),
-    ("m2", 2, "보이는 제품", "티켓 보드 · 다이어그램 · 연동 (D4~D6)"),
-    ("m3", 3, "감지와 재설계", "이벤트 · 알람 · 재점검 · 재설계 (D7~D9)"),
-    ("m4", 4, "제출", "시드 · 배포 · 영상 (D10~D14)"),
+# 주가 관리 단위다. 2 주짜리 계획이라 주는 둘뿐이고, 그 안에 태스크가 산다.
+WEEKS = [
+    ("w1", 1, "1주 - 계획을 만들고 화면에 띄운다"),
+    ("w2", 2, "2주 - 막힌 지점을 감지하고 다시 짠다"),
 ]
 
-WEEKLY_GOALS = [
-    ("w1", "m1", 1, "1주차 - 백엔드가 목표를 계획으로 바꾼다"),
-    ("w2", "m2", 1, "1주차 - 계획이 화면에서 보인다"),
-    ("w3", "m3", 2, "2주차 - 막힌 지점을 감지하고 다시 짠다"),
-    ("w4", "m4", 2, "2주차 - 내보내고 제출한다"),
+# (key, 주, 번호, 제목, 설명). 번호는 프로젝트 전체에서 이어 센다.
+TASKS = [
+    ("m1", "w1", 1, "백엔드가 목표를 계획으로 바꾼다", "스키마 · 생성 그래프 · critic 루프 (D1~D3)"),
+    ("m2", "w1", 2, "계획이 화면에서 보인다", "티켓 보드 · 다이어그램 · 연동 (D4~D6)"),
+    ("m3", "w2", 3, "감지와 재설계", "이벤트 · 알람 · 재점검 · 재설계 (D7~D9)"),
+    ("m4", "w2", 4, "내보내고 제출한다", "시드 · 배포 · 영상 (D10~D14)"),
 ]
 
-GOAL_OF = {"m1": "w1", "m2": "w2", "m3": "w3", "m4": "w4"}
+
+def _number_in_task(ticket_key: str) -> int:
+    """태스크 안에서 몇 번째 티켓인가. 티켓을 부르는 이름의 뒷자리다."""
+    task = next(t[1] for t in TICKETS if t[0] == ticket_key)
+    same = [t[0] for t in TICKETS if t[1] == task]
+    return same.index(ticket_key) + 1
 
 
 def build_draft() -> PlanDraft:
     return PlanDraft(
-        milestones=[
-            DraftMilestone(key=k, order_index=i, title=t, description=d)
-            for k, i, t, d in MILESTONES
-        ],
         weekly_goals=[
-            DraftWeeklyGoal(key=k, milestone_key=m, week_index=w, title=t)
-            for k, m, w, t in WEEKLY_GOALS
+            DraftWeeklyGoal(key=k, week_index=w, title=t) for k, w, t in WEEKS
+        ],
+        tasks=[
+            DraftTask(key=k, weekly_goal_key=g, task_number=n, title=t, description=d)
+            for k, g, n, t, d in TASKS
         ],
         tickets=[
             DraftTicket(
                 key=key,
-                weekly_goal_key=GOAL_OF[milestone],
-                order_index=i,
+                task_key=task,
+                # 번호는 태스크마다 1 부터 다시 센다.
+                ticket_number=_number_in_task(key),
                 title=title,
                 body=(
                     f"## 무엇을\n{title}\n\n"
@@ -147,9 +153,7 @@ def build_draft() -> PlanDraft:
                 est_minutes=minutes,
                 depends_on=list(deps),
             )
-            for i, (key, milestone, _w, title, minutes, nodes, deps, _done, _day) in enumerate(
-                TICKETS, start=1
-            )
+            for (key, task, _w, title, minutes, nodes, deps, _done, _day) in TICKETS
         ],
         nodes=[
             DraftNode(node_key=k, label=lab, node_type=nt, layer=lay) for k, lab, nt, lay in NODES
@@ -244,7 +248,7 @@ async def _backfill_progress(conn: asyncpg.Connection, project_id) -> None:
             START + timedelta(days=day - 1), datetime.min.time(), tzinfo=UTC
         ) + timedelta(hours=21)
         await conn.execute(
-            "update tickets set status = 'done', completed_at = $2 where id = $1",
+            "update tickets set status = 'resolved', completed_at = $2 where id = $1",
             ticket_id,
             finished,
         )
@@ -266,6 +270,9 @@ async def _backfill_progress(conn: asyncpg.Connection, project_id) -> None:
         """,
         project_id,
     )
+    # 태스크 상태도 티켓에서 되읽는다 — 10개가 다 끝났는데 open 으로 남으면
+    # 보드가 거짓말을 한다 (§2.1).
+    await sync_task_status(conn, project_id)
     print(f"  완료 백필: {completed}개 티켓")
 
 
@@ -298,7 +305,9 @@ async def _demo_history(conn: asyncpg.Connection, project_id) -> None:
         )
         if reason:
             await conn.execute(
-                "update tickets set status = 'blocked', blocked_reason = $2 where id = $1",
+                # 막힘은 상태가 아니다 — 잡고 있다가 멈춘 것이라 claimed 로 남고
+                # 사유가 한 줄 붙는다. blocked 이벤트는 아래에서 따로 남긴다.
+                "update tickets set status = 'claimed', blocked_reason = $2 where id = $1",
                 row["id"],
                 reason,
             )
@@ -323,6 +332,9 @@ async def _demo_history(conn: asyncpg.Connection, project_id) -> None:
         """,
         project_id,
     )
+    # 막힘·지연을 얹은 뒤라 태스크 상태를 다시 읽는다 — 백필 때 맞춰둔 값은
+    # 이 이력을 아직 모른다.
+    await sync_task_status(conn, project_id)
     reviews = await conn.fetchval(
         "select count(*) from review_days where project_id = $1 and status = 'scheduled'",
         project_id,

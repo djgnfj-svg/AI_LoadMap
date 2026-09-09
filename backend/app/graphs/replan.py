@@ -26,7 +26,7 @@ _ORDER = {
     "drop_ticket": 2,
     "add_ticket": 3,
     "add_dependency": 4,
-    "shift_milestone": 5,
+    "shift_week": 5,
 }
 
 
@@ -49,8 +49,8 @@ def build_changes(
     proposals: list[ProposedChange],
     *,
     ref_to_ticket: dict[str, dict],
-    scope_goal_ids: list[str],
-    downstream_milestone_ids: list[str],
+    scope_task_ids: list[str],
+    downstream_weekly_goal_ids: list[str],
     dependency_map: dict[str, list[str]] | None = None,
 ) -> list[ReplanChange]:
     """제안을 승인 단위(ReplanChange)로 바꾼다. 말이 안 되는 제안은 조용히 버린다.
@@ -71,7 +71,7 @@ def build_changes(
         cid = f"c{counter}"
 
         # 이미 끝난 티켓은 건드리지 않는다. 한 일을 되돌리는 제안은 받지 않는다.
-        if target is not None and target["status"] == "done" and p.type != "add_dependency":
+        if target is not None and target["status"] == "resolved" and p.type != "add_dependency":
             counter -= 1
             continue
 
@@ -125,7 +125,7 @@ def build_changes(
             )
 
         elif p.type == "drop_ticket":
-            if target is None or target["status"] != "todo":
+            if target is None or target["status"] != "open":
                 counter -= 1
                 continue
             changes.append(
@@ -144,10 +144,11 @@ def build_changes(
             if not p.title or p.est_minutes <= 0 or p.est_minutes > MAX_TICKET_MINUTES:
                 counter -= 1
                 continue
+            # 새 티켓은 태스크 아래에 선다 — 태스크 없는 티켓은 번호도 못 받는다.
             anchor = target or depends
-            fallback_goal = scope_goal_ids[0] if scope_goal_ids else None
-            goal_id = anchor["weekly_goal_id"] if anchor else fallback_goal
-            if goal_id is None:
+            fallback_task = scope_task_ids[0] if scope_task_ids else None
+            task_id = anchor["task_id"] if anchor else fallback_task
+            if task_id is None:
                 counter -= 1
                 continue
             new_id = str(uuid.uuid4())
@@ -161,7 +162,7 @@ def build_changes(
                     after=f"{p.title} ({p.est_minutes}분)",
                     op={
                         "new_ticket_id": new_id,
-                        "weekly_goal_id": goal_id,
+                        "task_id": task_id,
                         "title": p.title,
                         "body": p.body or f"## 무엇을\n{p.title}\n",
                         "est_minutes": p.est_minutes,
@@ -193,20 +194,20 @@ def build_changes(
                 )
             )
 
-        elif p.type == "shift_milestone":
+        elif p.type == "shift_week":
             days = max(1, min(p.shift_days, 90))
-            if not downstream_milestone_ids:
+            if not downstream_weekly_goal_ids:
                 counter -= 1
                 continue
             changes.append(
                 ReplanChange(
                     id=cid,
                     type=p.type,
-                    label=f"후속 마일스톤 {len(downstream_milestone_ids)}개 일정을 {days}일 이월",
+                    label=f"후속 주 {len(downstream_weekly_goal_ids)}개 일정을 {days}일 이월",
                     reason=p.reason,
                     before="현재 일정",
                     after=f"{days}일 뒤로",
-                    op={"milestone_ids": downstream_milestone_ids, "days": days},
+                    op={"weekly_goal_ids": downstream_weekly_goal_ids, "days": days},
                 )
             )
         else:
@@ -219,7 +220,7 @@ def apply_to_draft(draft: PlanDraft, changes: list[ReplanChange]) -> PlanDraft:
     """승인 여부와 무관하게, 주어진 변경을 초안 위에 적용한다.
 
     critic 은 이 결과를 본다. DB 에 실제로 넣기 전에 같은 결과를 검증하는 게 목적이다.
-    (shift_milestone 은 날짜만 바꾸므로 초안 구조에 영향이 없어 여기서는 무시한다.)
+    (shift_week 은 날짜만 바꾸므로 초안 구조에 영향이 없어 여기서는 무시한다.)
     """
     d = draft.model_copy(deep=True)
     by_key = {t.key: t for t in d.tickets}
@@ -237,11 +238,18 @@ def apply_to_draft(draft: PlanDraft, changes: list[ReplanChange]) -> PlanDraft:
             original.title = parts[0]["title"]
             original.est_minutes = parts[0]["est_minutes"]
             prev = original.key
-            for new_id, part in zip(op["new_ticket_ids"], parts[1:], strict=True):
+            # 조각은 원래 티켓과 같은 태스크에 선다. 번호는 뒤에 이어 붙인다.
+            tail = max(
+                (t.ticket_number for t in d.tickets if t.task_key == original.task_key),
+                default=original.ticket_number,
+            )
+            for i, (new_id, part) in enumerate(
+                zip(op["new_ticket_ids"], parts[1:], strict=True), start=1
+            ):
                 ticket = DraftTicket(
                     key=new_id,
-                    weekly_goal_key=original.weekly_goal_key,
-                    order_index=original.order_index,
+                    task_key=original.task_key,
+                    ticket_number=tail + i,
                     title=part["title"],
                     body=original.body,
                     est_minutes=part["est_minutes"],
@@ -268,13 +276,16 @@ def apply_to_draft(draft: PlanDraft, changes: list[ReplanChange]) -> PlanDraft:
                 t.depends_on = [x for x in t.depends_on if x != ticket_id]
 
         elif change.type == "add_ticket":
-            goal_key = op["weekly_goal_id"]
-            if not any(g.key == goal_key for g in d.weekly_goals):
+            task_key = op["task_id"]
+            if not any(k.key == task_key for k in d.tasks):
                 continue
+            next_number = max(
+                (t.ticket_number for t in d.tickets if t.task_key == task_key), default=0
+            ) + 1
             ticket = DraftTicket(
                 key=op["new_ticket_id"],
-                weekly_goal_key=goal_key,
-                order_index=0,  # 선행이므로 앞에 온다
+                task_key=task_key,
+                ticket_number=next_number,
                 title=op["title"],
                 body=op["body"],
                 est_minutes=op["est_minutes"],

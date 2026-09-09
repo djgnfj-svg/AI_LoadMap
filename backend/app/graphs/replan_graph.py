@@ -44,10 +44,10 @@ class ReplanState(TypedDict, total=False):
     signals: ReplanSignals
     diagnosis: str
     rationale: str
-    scope_milestone_id: str
-    scope_milestone_title: str
-    scope_goal_ids: list[str]
-    downstream_milestone_ids: list[str]
+    scope_weekly_goal_id: str
+    scope_weekly_goal_title: str
+    scope_task_ids: list[str]
+    downstream_weekly_goal_ids: list[str]
     ref_to_ticket: dict[str, dict]
     changes: list[ReplanChange]
     merged_draft: PlanDraft
@@ -84,21 +84,22 @@ def build_replan_graph(planner: Planner, max_retries: int | None = None):
         )
         return {"diagnosis": result.diagnosis, "rationale": result.rationale}
 
-    # ── replan_scope (R3 — 최대 마일스톤 1개, AI 미개입) ───────
+    # ── replan_scope (R3 — 최대 주 1개, AI 미개입) ─────────────
+    # 주가 관리 단위다. 한 번에 다시 그리는 것은 주 하나다.
     async def replan_scope(state: ReplanState) -> dict:
         ctx = state["context"]
-        candidates = [m for m in ctx.milestones.values() if m["open"] > 0] or list(
-            ctx.milestones.values()
+        candidates = [w for w in ctx.weeks.values() if w["open"] > 0] or list(
+            ctx.weeks.values()
         )
         if not candidates:
-            raise RuntimeError("재설계할 마일스톤이 없다.")
-        # 이 노드에서 가장 많이 지연된 마일스톤. 동률이면 앞선 마일스톤.
-        scope = max(candidates, key=lambda m: (m["delayed"], m["on_node"], -m["order_index"]))
+            raise RuntimeError("재설계할 주가 없다.")
+        # 이 노드에서 가장 많이 지연된 주. 동률이면 앞선 주.
+        scope = max(candidates, key=lambda w: (w["delayed"], w["on_node"], -w["week_index"]))
 
         refs: dict[str, dict] = {}
-        rows = [t for t in ctx.tickets.values() if t["milestone_id"] == scope["id"]]
+        rows = [t for t in ctx.tickets.values() if t["weekly_goal_id"] == scope["id"]]
         # 계획의 실제 순서로 정렬한다. 제목순으로 매기면 T번호가 선후관계를 거꾸로 암시한다.
-        rows.sort(key=lambda t: (t["week_index"], t["order_index"], t["title"]))
+        rows.sort(key=lambda t: (t["task_number"], t["ticket_number"], t["title"]))
         id_to_ref = {}
         for i, ticket in enumerate(rows, start=1):
             ref = f"T{i}"
@@ -110,15 +111,15 @@ def build_replan_graph(planner: Planner, max_retries: int | None = None):
             ]
 
         downstream = [
-            m["id"]
-            for m in ctx.milestones.values()
-            if m["order_index"] > scope["order_index"]
+            w["id"]
+            for w in ctx.weeks.values()
+            if w["week_index"] > scope["week_index"]
         ]
         return {
-            "scope_milestone_id": scope["id"],
-            "scope_milestone_title": scope["title"],
-            "scope_goal_ids": scope["goal_ids"],
-            "downstream_milestone_ids": downstream,
+            "scope_weekly_goal_id": scope["id"],
+            "scope_weekly_goal_title": scope["title"],
+            "scope_task_ids": scope["task_ids"],
+            "downstream_weekly_goal_ids": downstream,
             "ref_to_ticket": refs,
         }
 
@@ -136,7 +137,7 @@ def build_replan_graph(planner: Planner, max_retries: int | None = None):
             diagnosis=state["diagnosis"],
             rationale=state["rationale"],
             prescription=prompts.PRESCRIPTION.get(state["diagnosis"], ""),
-            milestone_title=state["scope_milestone_title"],
+            week_title=state["scope_weekly_goal_title"],
             tickets=prompts.format_scope_tickets(rows),
             hours_per_week=constraints.hours_per_week,
             capacity=constraints.weekly_capacity_minutes,
@@ -154,8 +155,8 @@ def build_replan_graph(planner: Planner, max_retries: int | None = None):
         changes = replan.build_changes(
             result.changes,
             ref_to_ticket=state["ref_to_ticket"],
-            scope_goal_ids=state["scope_goal_ids"],
-            downstream_milestone_ids=state["downstream_milestone_ids"],
+            scope_task_ids=state["scope_task_ids"],
+            downstream_weekly_goal_ids=state["downstream_weekly_goal_ids"],
             dependency_map={t["id"]: t["depends_on"] for t in ctx.tickets.values()},
         )
         merged = replan.apply_to_draft(ctx.base_draft, changes)
@@ -186,8 +187,8 @@ def build_replan_graph(planner: Planner, max_retries: int | None = None):
                 signals=state["signals"],
                 diagnosis=state["diagnosis"],  # type: ignore[arg-type]
                 rationale=state["rationale"],
-                scope_milestone_id=state["scope_milestone_id"],
-                scope_milestone_title=state["scope_milestone_title"],
+                scope_weekly_goal_id=state["scope_weekly_goal_id"],
+                scope_weekly_goal_title=state["scope_weekly_goal_title"],
                 changes=state.get("changes") or [],
                 residual_violations=residual,
                 repairs=state.get("repairs") or [],

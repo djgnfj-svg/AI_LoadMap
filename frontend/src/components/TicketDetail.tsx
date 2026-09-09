@@ -39,7 +39,7 @@ export function TicketDetail({ view, ticket, onClose, onAction, onSelectNode }: 
     view.ticket_dependencies.filter((d) => d.ticket_id === ticket.id).map((d) => d.depends_on),
   );
   const deps = view.tickets.filter((t) => depIds.has(t.id));
-  const blockedByOpenDep = deps.some((d) => d.status !== "done");
+  const blockedByOpenDep = deps.some((d) => d.status !== "resolved");
 
   const copy = async () => {
     await navigator.clipboard.writeText(agentPrompt(ticket, nodes, deps));
@@ -99,7 +99,7 @@ export function TicketDetail({ view, ticket, onClose, onAction, onSelectNode }: 
           <h5>선행 티켓</h5>
           {deps.map((d) => (
             <div key={d.id} className="sub" style={{ marginBottom: 4 }}>
-              {d.status === "done" ? "✓" : "○"} {d.title}
+              {d.status === "resolved" ? "✓" : "○"} {d.title}
             </div>
           ))}
           {blockedByOpenDep && (
@@ -138,16 +138,16 @@ export function TicketDetail({ view, ticket, onClose, onAction, onSelectNode }: 
       </section>
 
       <div className="actions">
-        {ticket.status !== "done" && (
+        {ticket.status !== "resolved" && (
           <button className="primary" onClick={() => onAction("complete")}>
             완료
           </button>
         )}
-        {ticket.status === "todo" && <button onClick={() => onAction("start")}>시작</button>}
-        {ticket.status === "blocked" && (
+        {ticket.status === "open" && <button onClick={() => onAction("start")}>시작</button>}
+        {ticket.blocked_reason !== null && (
           <button onClick={() => onAction("unblock")}>막힘 해제</button>
         )}
-        {ticket.status !== "done" && <button onClick={() => onAction("defer")}>연기</button>}
+        {ticket.status !== "resolved" && <button onClick={() => onAction("defer")}>연기</button>}
       </div>
     </aside>
   );

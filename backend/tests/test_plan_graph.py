@@ -135,6 +135,6 @@ async def test_draft_는_단계마다_누적된다():
     result = await run(planner)
     draft: PlanDraft = result["draft"]
 
-    assert draft.milestones and draft.weekly_goals and draft.tickets
+    assert draft.weekly_goals and draft.tasks and draft.tickets
     assert draft.nodes and draft.edges and draft.links
     assert isinstance(result["constraints"], Constraints)

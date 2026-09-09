@@ -25,7 +25,7 @@ RunStatus = Literal["running", "awaiting_clarify", "done", "failed"]
 NODE_LABELS = {
     "intake": "목표에서 제약을 읽는 중",
     "clarify": "빠진 정보를 확인하는 중",
-    "decompose": "마일스톤 · 주차별 목표 · 티켓으로 쪼개는 중",
+    "decompose": "주 · 태스크 · 티켓으로 쪼개는 중",
     "architect": "아키텍처를 그리는 중",
     "link": "티켓과 컴포넌트를 잇는 중",
     "critic": "검증하는 중",
@@ -125,7 +125,7 @@ class PlanRunner:
         draft = update.get("draft")
         if isinstance(draft, PlanDraft):
             event["counts"] = {
-                "milestones": len(draft.milestones),
+                "tasks": len(draft.tasks),
                 "weekly_goals": len(draft.weekly_goals),
                 "tickets": len(draft.tickets),
                 "nodes": len(draft.nodes),

@@ -46,7 +46,7 @@ CLARIFY = """아래 필드는 목표 문장만으로는 확신할 수 없어 추
 """
 
 
-DECOMPOSE = """목표를 마일스톤 -> 주차별 목표 -> 티켓으로 분해하라.
+DECOMPOSE = """목표를 주 -> 태스크 -> 티켓으로 분해하라.
 
 목표:
 {goal_text}
@@ -57,15 +57,23 @@ DECOMPOSE = """목표를 마일스톤 -> 주차별 목표 -> 티켓으로 분해
 - 스택: {stack}
 - 인원: {team_size}명
 
-구조:
-- 마일스톤 3~6개. 사람에게 보여주는 단위다. key 는 m1, m2 ... 로 매긴다.
-- 마일스톤당 주차별 목표 2~4개. week_index 는 1부터 시작하고 {duration_weeks} 를 넘지 않는다.
+구조는 주 > 태스크 > 티켓 세 겹이다. **주가 관리 단위다.**
+
+- 주(weekly_goals) 는 {duration_weeks} 개 이하. week_index 는 1부터 센다.
   key 는 w1, w2 ... 로 매긴다.
-- 티켓은 실행 단위다. key 는 t1, t2 ... 로 매긴다.
+  그 주 마지막 저녁에 화면에 무엇이 있는지가 주의 제목이다.
+- 태스크(tasks) 는 주마다 2~5개. 한 덩어리로 묶이는 티켓들의 집이다.
+  key 는 k1, k2 ... 로 매긴다.
+  * **한 태스크는 한 주에만 산다.** weekly_goal_key 는 하나뿐이다.
+  * task_number 는 프로젝트 전체에서 1부터 이어 센다 — 주마다 다시 세지 않는다.
+  * 「무엇을 어떻게 짓는지」가 아니라 「이게 끝나면 화면에 무엇이 있는지」로 이름 짓는다.
+- 티켓(tickets) 은 실행 단위다. key 는 t1, t2 ... 로 매긴다.
+  * ticket_number 는 **태스크마다 1부터 다시 센다.** 티켓을 부르는 이름이 NN-MM 이다.
   * est_minutes 는 {max_min} 이하. 예외 없다.
-  * 한 주차에 배정된 티켓의 est_minutes 합계가 {capacity} 분을 넘으면 안 된다.
+  * 한 주에 든 티켓의 est_minutes 합계가 {capacity} 분을 넘으면 안 된다.
+    (그 주의 태스크들에 든 티켓을 전부 합친 값이다.)
   * depends_on 에는 먼저 끝나야 하는 티켓의 key 를 넣는다. 순환하면 안 된다.
-    앞 주차 -> 뒤 주차 방향으로만 의존한다.
+    앞 주 -> 뒤 주 방향으로만 의존한다.
 
 티켓 body 는 이 마크다운 형식을 그대로 쓴다:
 
@@ -86,13 +94,14 @@ DECOMPOSE_RETRY = """방금 낸 분해가 검증에서 걸렸다. 아래 위반�
 위반:
 {violations}
 
-이전 분해(마일스톤 {n_ms}개 / 주차 {n_wg}개 / 티켓 {n_tk}개):
+이전 분해(주 {n_wg}개 / 태스크 {n_ms}개 / 티켓 {n_tk}개):
 {previous}
 
 고칠 때 지킬 것:
 - 걸린 부분만 고친다. 통과한 부분의 key 와 내용은 그대로 유지한다.
 - 티켓을 쪼갤 때는 원래 key 를 유지한 채 새 key 를 추가한다 (t7 -> t7, t7b, t7c).
-- 주간 합계가 넘쳤으면 티켓을 뒤 주차로 옮기거나 범위를 줄인다.
+- 주간 합계가 넘쳤으면 **태스크째** 뒤 주로 옮기거나 범위를 줄인다.
+  ⚠ 티켓 하나만 뒤 주로 보내지 마라 — 한 태스크는 한 주에만 산다.
 """
 
 
@@ -101,8 +110,8 @@ ARCHITECT = """이 프로젝트가 만들 시스템의 아키텍처를 그려라
 목표: {goal_text}
 스택: {stack}
 
-마일스톤:
-{milestones}
+주와 태스크:
+{plan}
 
 - 노드 6~15개. node_key 는 'auth', 'netcode', 'db' 처럼 영문 소문자 안정 식별자다.
   나중에 이 key 로 티켓과 연결되므로 재생성해도 같은 컴포넌트는 같은 key 여야 한다.
@@ -135,24 +144,24 @@ def format_violations(result: CriticResult) -> str:
 
 
 def format_previous(draft: PlanDraft) -> str:
+    """초안을 주 > 태스크 > 티켓 순으로 펼친다. 어디에도 안 붙은 것은 끝에 따로 적는다."""
     lines: list[str] = []
-    goal_by_key = {g.key: g for g in draft.weekly_goals}
-    for m in sorted(draft.milestones, key=lambda x: x.order_index):
-        lines.append(f"{m.key} [마일스톤] {m.title}")
-        goals = [g for g in draft.weekly_goals if g.milestone_key == m.key]
-        for g in sorted(goals, key=lambda x: x.week_index):
-            lines.append(f"  {g.key} [{g.week_index}주차] {g.title}")
-            tickets = [t for t in draft.tickets if t.weekly_goal_key == g.key]
-            for t in sorted(tickets, key=lambda x: x.order_index):
+    task_by_key = {k.key: k for k in draft.tasks}
+    for g in sorted(draft.weekly_goals, key=lambda x: x.week_index):
+        lines.append(f"{g.key} [{g.week_index}주] {g.title}")
+        tasks = [k for k in draft.tasks if k.weekly_goal_key == g.key]
+        for k in sorted(tasks, key=lambda x: x.task_number):
+            lines.append(f"  {k.key} [태스크 {k.task_number:02d}] {k.title}")
+            tickets = [t for t in draft.tickets if t.task_key == k.key]
+            for t in sorted(tickets, key=lambda x: x.ticket_number):
                 deps = f" <- {','.join(t.depends_on)}" if t.depends_on else ""
-                lines.append(f"    {t.key} ({t.est_minutes}분) {t.title}{deps}")
-    milestone_keys = {m.key for m in draft.milestones}
-    orphan_goals = [g for g in draft.weekly_goals if g.milestone_key not in milestone_keys]
-    for g in orphan_goals:
-        lines.append(f"  {g.key} [{g.week_index}주차, 마일스톤 없음] {g.title}")
-    orphan_tickets = [t for t in draft.tickets if t.weekly_goal_key not in goal_by_key]
-    for t in orphan_tickets:
-        lines.append(f"    {t.key} ({t.est_minutes}분, 주차 없음) {t.title}")
+                num = f"{k.task_number:02d}-{t.ticket_number:02d}"
+                lines.append(f"    {t.key} [{num}] ({t.est_minutes}분) {t.title}{deps}")
+    goal_keys = {g.key for g in draft.weekly_goals}
+    for k in [k for k in draft.tasks if k.weekly_goal_key not in goal_keys]:
+        lines.append(f"  {k.key} [태스크, 주 없음] {k.title}")
+    for t in [t for t in draft.tickets if t.task_key not in task_by_key]:
+        lines.append(f"    {t.key} ({t.est_minutes}분, 태스크 없음) {t.title}")
     return "\n".join(lines)
 
 
@@ -210,7 +219,7 @@ PRESCRIPTION = {
         "티켓 내용을 바꾸지는 않는다."
     ),
     "외부요인": (
-        "계획은 그대로 두고 일정만 이월한다(shift_milestone). "
+        "계획은 그대로 두고 일정만 이월한다(shift_week). "
         "티켓을 쪼개거나 지우지 않는다."
     ),
 }
@@ -224,10 +233,10 @@ REPLAN = """재점검 세션이다. 막힌 구간만 다시 설계하라.
 처방:
 {prescription}
 
-범위는 마일스톤 「{milestone_title}」 하나다. 이 밖은 손대지 않는다.
+범위는 주 「{week_title}」 하나다. 이 밖은 손대지 않는다.
 전체를 다시 그리면 사용자가 자기 계획이라고 느끼지 않는다.
 
-현재 이 마일스톤의 티켓:
+현재 이 주의 티켓:
 {tickets}
 
 제약: 주당 {hours_per_week}시간 (= {capacity}분), 티켓 하나는 {max_min}분 이내.
@@ -236,7 +245,7 @@ REPLAN = """재점검 세션이다. 막힌 구간만 다시 설계하라.
 - 변경 3~8건. 처방에 맞는 종류만 쓴다.
 - target_ref / depends_on_ref 에는 위 목록의 T번호를 그대로 쓴다.
 - 쓰지 않는 필드는 빈 문자열이나 0 으로 둔다.
-- 완료된(done) 티켓은 건드리지 않는다. 이미 한 일을 되돌리는 제안은 하지 않는다.
+- 끝난(resolved) 티켓은 건드리지 않는다. 이미 한 일을 되돌리는 제안은 하지 않는다.
 - 각 변경의 reason 은 위 숫자나 막힘 사유를 근거로 한 문장.
 """
 

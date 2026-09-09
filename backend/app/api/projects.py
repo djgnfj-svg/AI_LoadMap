@@ -76,20 +76,17 @@ async def get_project(project_id: uuid.UUID, request: Request) -> dict:
         if project is None:
             raise HTTPException(404, "없는 프로젝트다.")
 
-        milestones = await conn.fetch(
-            "select * from milestones where project_id = $1 order by order_index", project_id
-        )
         goals = await conn.fetch(
-            """
-            select g.* from weekly_goals g
-            join milestones m on m.id = g.milestone_id
-            where m.project_id = $1
-            order by g.week_index
-            """,
+            "select * from weekly_goals where project_id = $1 order by week_index nulls last",
+            project_id,
+        )
+        tasks = await conn.fetch(
+            "select * from tasks where project_id = $1 order by task_number nulls last",
             project_id,
         )
         tickets = await conn.fetch(
-            "select * from tickets where project_id = $1 order by order_index", project_id
+            "select * from tickets where project_id = $1 order by ticket_number nulls last",
+            project_id,
         )
         deps = await conn.fetch(
             """
@@ -131,8 +128,8 @@ async def get_project(project_id: uuid.UUID, request: Request) -> dict:
             "repairs": run.repairs if run else [],
             "error": run.error if run else None,
         },
-        "milestones": [_row(r) for r in milestones],
         "weekly_goals": [_row(r) for r in goals],
+        "tasks": [_row(r) for r in tasks],
         "tickets": [_row(r) for r in tickets],
         "ticket_dependencies": [_row(r) for r in deps],
         "arch_nodes": [_row(r) for r in nodes],

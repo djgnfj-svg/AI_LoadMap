@@ -127,21 +127,31 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 }
 .filter-banner button { padding: 2px 8px; font-size: 12px; }
 
-/* 티켓 보드 */
-.milestone { margin-bottom: 22px; }
-.milestone > h3 {
+/* 티켓 보드 — 주 > 태스크 > 티켓 */
+.week { margin-bottom: 22px; }
+.week > h3 {
   font-size: 13px; margin: 0 0 4px; display: flex; gap: 8px; align-items: baseline;
 }
-.milestone .meta { font-size: 11px; color: var(--dim); font-weight: 400; }
-.week { margin: 10px 0 0 0; }
-.week > h4 {
-  font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 500;
-  display: flex; gap: 8px; align-items: baseline;
+.week .meta { font-size: 11px; color: var(--dim); font-weight: 400; }
+.week-bar {
+  display: flex; gap: 8px; align-items: center;
+  font-size: 11px; color: var(--dim); margin-bottom: 8px;
 }
-.week .bar {
+.week-bar .bar {
   flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden;
 }
-.week .bar i { display: block; height: 100%; background: var(--done); }
+.week-bar .bar i { display: block; height: 100%; background: var(--done); }
+
+.task { margin: 10px 0 0 0; }
+.task > h4 {
+  font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 500;
+  display: flex; gap: 8px; align-items: baseline; justify-content: space-between;
+}
+/* 태스크·티켓 번호. 제목과 같은 줄에 서지만 눈에 먼저 걸리지는 않는다. */
+.num {
+  font-variant-numeric: tabular-nums; color: var(--dim);
+  font-size: 11px; margin-right: 6px;
+}
 
 .ticket {
   display: flex; gap: 10px; align-items: flex-start;
@@ -151,14 +161,15 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 }
 .ticket:hover { border-color: var(--border); }
 .ticket.selected { border-color: #1f6feb; background: #101a26; }
-.ticket.done .title { color: var(--dim); text-decoration: line-through; }
-.ticket.blocked { border-left: 3px solid var(--risk); }
+.ticket.resolved .title { color: var(--dim); text-decoration: line-through; }
+/* 접은 티켓은 흐리게. 막힘은 상태가 아니라 사유 배지로 표시된다. */
+.ticket.parked { opacity: 0.55; }
 .ticket .check {
   width: 16px; height: 16px; flex: none; margin-top: 2px;
   border: 1.5px solid var(--dim); border-radius: 4px;
   display: grid; place-items: center; font-size: 11px; color: var(--bg);
 }
-.ticket.done .check { background: var(--done); border-color: var(--done); }
+.ticket.resolved .check { background: var(--done); border-color: var(--done); }
 .ticket .body { min-width: 0; flex: 1; }
 .ticket .title { font-size: 13px; }
 .ticket .sub { font-size: 11px; color: var(--dim); display: flex; gap: 8px; margin-top: 2px; }

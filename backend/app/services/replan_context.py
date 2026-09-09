@@ -22,7 +22,8 @@ class ReplanContext:
     signals: ReplanSignals
     constraints: Constraints
     base_draft: PlanDraft
-    milestones: dict[str, dict] = field(default_factory=dict)
+    # 재설계 범위 후보. R3 에 따라 replan_scope 가 이 중 주 하나만 고른다.
+    weeks: dict[str, dict] = field(default_factory=dict)
     tickets: dict[str, dict] = field(default_factory=dict)
 
 
@@ -49,7 +50,7 @@ async def load_replan_context(
         """
         select
           count(*)                                            as total,
-          count(*) filter (where t.status = 'done')           as done,
+          count(*) filter (where t.status = 'resolved')       as done,
           count(*) filter (where t.delay_count >= 1)          as delayed
         from tickets t
         join ticket_node_links l on l.ticket_id = t.id
@@ -112,17 +113,17 @@ async def load_replan_context(
         """
         select
           t.id, t.title, t.body, t.est_minutes, t.status, t.delay_count, t.blocked_reason,
-          t.order_index,
-          t.weekly_goal_id, g.week_index, g.milestone_id,
-          m.title as milestone_title, m.order_index as milestone_order,
+          t.ticket_number,
+          t.task_id, k.task_number, k.title as task_title,
+          k.weekly_goal_id, g.week_index, g.title as week_title,
           exists (
             select 1 from ticket_node_links l where l.ticket_id = t.id and l.node_id = $2
           ) as on_node
         from tickets t
-        join weekly_goals g on g.id = t.weekly_goal_id
-        join milestones m on m.id = g.milestone_id
+        join tasks k        on k.id = t.task_id
+        join weekly_goals g on g.id = k.weekly_goal_id
         where t.project_id = $1
-        order by m.order_index, g.week_index, t.order_index
+        order by g.week_index, k.task_number, t.ticket_number
         """,
         project_id,
         node_id,
@@ -144,31 +145,31 @@ async def load_replan_context(
     ):
         node_keys.setdefault(str(r["ticket_id"]), []).append(r["node_key"])
 
-    milestones: dict[str, dict] = {}
+    weeks: dict[str, dict] = {}
     tickets: dict[str, dict] = {}
     for r in rows:
-        mid = str(r["milestone_id"])
-        m = milestones.setdefault(
-            mid,
+        goal_id = str(r["weekly_goal_id"])
+        w = weeks.setdefault(
+            goal_id,
             {
-                "id": mid,
-                "title": r["milestone_title"],
-                "order_index": r["milestone_order"],
-                "goal_ids": [],
+                "id": goal_id,
+                "title": r["week_title"],
+                "week_index": r["week_index"],
+                "task_ids": [],
                 "on_node": 0,
                 "delayed": 0,
                 "open": 0,
             },
         )
-        goal_id = str(r["weekly_goal_id"])
-        if goal_id not in m["goal_ids"]:
-            m["goal_ids"].append(goal_id)
+        task_id = str(r["task_id"])
+        if task_id not in w["task_ids"]:
+            w["task_ids"].append(task_id)
         if r["on_node"]:
-            m["on_node"] += 1
+            w["on_node"] += 1
             if r["delay_count"] >= 1:
-                m["delayed"] += 1
-        if r["status"] != "done":
-            m["open"] += 1
+                w["delayed"] += 1
+        if r["status"] != "resolved":
+            w["open"] += 1
 
         tid = str(r["id"])
         tickets[tid] = {
@@ -176,13 +177,15 @@ async def load_replan_context(
             "title": r["title"],
             "body": r["body"] or "",
             "est_minutes": r["est_minutes"],
-            "order_index": r["order_index"],
+            "ticket_number": r["ticket_number"],
             "status": r["status"],
             "delay_count": r["delay_count"],
             "blocked_reason": r["blocked_reason"],
+            "task_id": task_id,
+            "task_number": r["task_number"],
+            "task_title": r["task_title"],
             "weekly_goal_id": goal_id,
             "week_index": r["week_index"],
-            "milestone_id": mid,
             "on_node": bool(r["on_node"]),
             "depends_on": depends_on.get(tid, []),
             "node_keys": node_keys.get(tid, []),
@@ -195,6 +198,6 @@ async def load_replan_context(
         signals=signals,
         constraints=constraints,
         base_draft=await load_draft(conn, project_id),
-        milestones=milestones,
+        weeks=weeks,
         tickets=tickets,
     )

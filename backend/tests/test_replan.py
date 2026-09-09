@@ -12,8 +12,8 @@ from tests.helpers import CONSTRAINTS, sample_draft
 
 def ticket(tid: str, **kw) -> dict:
     base = dict(
-        id=tid, title=f"티켓 {tid}", est_minutes=90, status="todo",
-        weekly_goal_id="w1", node_keys=["node_a"], depends_on=[],
+        id=tid, title=f"티켓 {tid}", est_minutes=90, status="open",
+        task_id="k1", node_keys=["node_a"], depends_on=[],
     )
     base.update(kw)
     return base
@@ -32,8 +32,8 @@ def build(props, refs, **kw):
     return build_changes(
         props,
         ref_to_ticket=refs,
-        scope_goal_ids=kw.get("goal_ids", ["w1"]),
-        downstream_milestone_ids=kw.get("downstream", ["m2"]),
+        scope_task_ids=kw.get("task_ids", ["k1"]),
+        downstream_weekly_goal_ids=kw.get("downstream", ["w2"]),
         dependency_map=kw.get("deps"),
     )
 
@@ -75,7 +75,7 @@ def test_한_번에_들어온_두_제안이_서로_순환을_만들면_뒤엣것
 
 def test_완료된_티켓은_건드리지_않는다():
     """한 일을 되돌리는 제안은 받지 않는다."""
-    refs = {"T1": ticket("t1", status="done")}
+    refs = {"T1": ticket("t1", status="resolved")}
     changes = build(
         [proposal(type="drop_ticket", target_ref="T1"),
          proposal(type="reduce_ticket", target_ref="T1", title="줄임", est_minutes=30)],
@@ -114,8 +114,8 @@ def test_이미_시작한_티켓은_지우지_않는다():
     assert build([proposal(type="drop_ticket", target_ref="T1")], refs) == []
 
 
-def test_후속_마일스톤이_없으면_이월할_게_없다():
-    assert build([proposal(type="shift_milestone", shift_days=7)], {}, downstream=[]) == []
+def test_후속_주가_없으면_이월할_게_없다():
+    assert build([proposal(type="shift_week", shift_days=7)], {}, downstream=[]) == []
 
 
 def test_분할을_초안에_적용하면_critic_을_통과한다():
@@ -141,7 +141,7 @@ def test_분할을_초안에_적용하면_critic_을_통과한다():
 def test_티켓_추가는_막힌_티켓_앞에_놓인다():
     draft = sample_draft()
     target = draft.tickets[1]
-    refs = {"T1": ticket(target.key, weekly_goal_id=target.weekly_goal_key)}
+    refs = {"T1": ticket(target.key, task_id=target.task_key)}
     changes = build(
         [proposal(type="add_ticket", target_ref="T1", title="선행 학습", est_minutes=60)],
         refs,

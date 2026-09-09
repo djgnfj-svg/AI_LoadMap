@@ -52,7 +52,7 @@ export interface TodayPlan {
 /**
  * 오늘 할 일을 고른다.
  *
- * 1. 끝난 것은 뺀다
+ * 1. 끝난 것과 접은 것은 뺀다
  * 2. 막힌 것(blocked)은 따로 — 오늘 몫에 넣어봐야 못 한다
  * 3. 선행이 안 끝난 것도 따로 — 순서를 어기면 계획이 아니다
  * 4. 남은 것 중 마감 지난 것을 먼저, 그다음 마감 가까운 순
@@ -67,14 +67,14 @@ export function selectTodayFocus(
   const blockersOf = new Map<string, Ticket[]>();
   for (const dep of view.ticket_dependencies) {
     const parent = byId.get(dep.depends_on);
-    if (!parent || parent.status === "done") continue;
+    if (!parent || parent.status === "resolved") continue;
     const list = blockersOf.get(dep.ticket_id) ?? [];
     list.push(parent);
     blockersOf.set(dep.ticket_id, list);
   }
 
   const open = view.tickets
-    .filter((t) => t.status !== "done")
+    .filter((t) => t.status !== "resolved" && t.status !== "parked")
     .filter((t) => !visibleTicketIds || visibleTicketIds.has(t.id));
 
   const blocked: Ticket[] = [];
@@ -82,7 +82,8 @@ export function selectTodayFocus(
   const actionable: Ticket[] = [];
 
   for (const t of open) {
-    if (t.status === "blocked") {
+    // 막힘은 상태가 아니다 — 사유 한 줄이 붙어 있으면 막힌 것이다.
+    if (t.blocked_reason) {
       blocked.push(t);
       continue;
     }
@@ -97,7 +98,7 @@ export function selectTodayFocus(
   const isOverdue = (t: Ticket) => t.due_date !== null && t.due_date < today;
   const dueKey = (t: Ticket) => t.due_date ?? "9999-12-31";
   const order = (a: Ticket, b: Ticket) =>
-    dueKey(a).localeCompare(dueKey(b)) || a.order_index - b.order_index;
+    dueKey(a).localeCompare(dueKey(b)) || (a.ticket_number ?? 0) - (b.ticket_number ?? 0);
 
   const overdue = actionable.filter(isOverdue).sort(order);
   const upcoming = actionable.filter((t) => !isOverdue(t)).sort(order);

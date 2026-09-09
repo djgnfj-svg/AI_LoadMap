@@ -11,7 +11,7 @@ from app.models.schemas import (
     Constraints,
     DraftEdge,
     DraftLink,
-    DraftMilestone,
+    DraftTask,
     DraftNode,
     DraftTicket,
     DraftWeeklyGoal,
@@ -38,25 +38,33 @@ class Seeded:
     project_id: uuid.UUID
     tickets: list[uuid.UUID]
     nodes: dict[str, uuid.UUID]
-    milestones: list[uuid.UUID]
+    weeks: list[uuid.UUID]
+    tasks: list[uuid.UUID]
 
 
 def sample_draft(n_tickets: int = 4) -> PlanDraft:
-    """티켓 1~3 은 node_a, 4번부터는 node_b 에 걸린다. 1~3 은 1주차, 나머지는 2주차."""
+    """티켓 1~3 은 node_a, 4번부터는 node_b 에 걸린다. 1~3 은 1주, 나머지는 2주."""
     return PlanDraft(
-        milestones=[
-            DraftMilestone(key="m1", order_index=1, title="1단계", description="첫 마일스톤"),
-            DraftMilestone(key="m2", order_index=2, title="2단계", description="후속 마일스톤"),
-        ],
         weekly_goals=[
-            DraftWeeklyGoal(key="w1", milestone_key="m1", week_index=1, title="1주차"),
-            DraftWeeklyGoal(key="w2", milestone_key="m2", week_index=2, title="2주차"),
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주"),
+            DraftWeeklyGoal(key="w2", week_index=2, title="2주"),
+        ],
+        tasks=[
+            DraftTask(
+                key="k1", weekly_goal_key="w1", task_number=1,
+                title="태스크 1", description="1주의 태스크",
+            ),
+            DraftTask(
+                key="k2", weekly_goal_key="w2", task_number=2,
+                title="태스크 2", description="2주의 태스크",
+            ),
         ],
         tickets=[
             DraftTicket(
                 key=f"t{i}",
-                weekly_goal_key="w1" if i <= 3 else "w2",
-                order_index=i,
+                task_key="k1" if i <= 3 else "k2",
+                # 번호는 태스크마다 1 부터 다시 센다
+                ticket_number=i if i <= 3 else i - 3,
                 title=f"티켓 {i}",
                 body=f"## 무엇을\n티켓 {i}\n\n## 완료 조건\n- [ ] 테스트 통과\n",
                 est_minutes=60,
@@ -109,10 +117,16 @@ async def seed_project(
             "select id, node_key from arch_nodes where project_id = $1", project_id
         )
     }
-    milestones = [
+    weeks = [
         r["id"]
         for r in await conn.fetch(
-            "select id from milestones where project_id = $1 order by order_index", project_id
+            "select id from weekly_goals where project_id = $1 order by week_index", project_id
         )
     ]
-    return Seeded(project_id, tickets, nodes, milestones)
+    tasks = [
+        r["id"]
+        for r in await conn.fetch(
+            "select id from tasks where project_id = $1 order by task_number", project_id
+        )
+    ]
+    return Seeded(project_id, tickets, nodes, weeks, tasks)

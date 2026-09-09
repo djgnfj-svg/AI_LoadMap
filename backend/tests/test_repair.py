@@ -7,7 +7,7 @@ from app.models.schemas import (
     Constraints,
     DraftEdge,
     DraftLink,
-    DraftMilestone,
+    DraftTask,
     DraftNode,
     DraftTicket,
     DraftWeeklyGoal,
@@ -22,14 +22,14 @@ CONSTRAINTS = Constraints(
 def broken_draft() -> PlanDraft:
     """critic 이 잡는 모든 항목을 한 번에 위반하는 초안."""
     return PlanDraft(
-        milestones=[DraftMilestone(key="m1", order_index=1, title="M", description="")],
-        weekly_goals=[DraftWeeklyGoal(key="w1", milestone_key="m1", week_index=1, title="1주차")],
+        tasks=[DraftTask(key="k1", weekly_goal_key="w1", task_number=1, title="태스크", description="")],
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1, title="인증 구현",
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="인증 구현",
                         body="b", est_minutes=300, depends_on=["t2"]),
-            DraftTicket(key="t2", weekly_goal_key="w1", order_index=2, title="DB 설계",
+            DraftTicket(key="t2", task_key="k1", ticket_number=2, title="DB 설계",
                         body="b", est_minutes=200, depends_on=["t1"]),
-            DraftTicket(key="t3", weekly_goal_key="w1", order_index=3, title="라우터",
+            DraftTicket(key="t3", task_key="k1", ticket_number=3, title="라우터",
                         body="b", est_minutes=90, depends_on=["없는티켓"]),
         ],
         nodes=[
@@ -94,10 +94,10 @@ def test_가용시간_초과분은_다음_주차로_이월된다():
         duration_weeks=1, hours_per_week=2, level="beginner", stack=[], team_size=1
     )  # 주당 120분
     d = PlanDraft(
-        milestones=[DraftMilestone(key="m1", order_index=1, title="M", description="")],
-        weekly_goals=[DraftWeeklyGoal(key="w1", milestone_key="m1", week_index=1, title="1주차")],
+        tasks=[DraftTask(key="k1", weekly_goal_key="w1", task_number=1, title="태스크", description="")],
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
         tickets=[
-            DraftTicket(key=f"t{i}", weekly_goal_key="w1", order_index=i, title=f"T{i}",
+            DraftTicket(key=f"t{i}", task_key="k1", ticket_number=i, title=f"T{i}",
                         body="b", est_minutes=60, depends_on=[])
             for i in range(1, 5)
         ],
@@ -118,10 +118,10 @@ def test_해소_불가능한_주차는_포기하고_사유를_남긴다():
         duration_weeks=2, hours_per_week=1, level="beginner", stack=[], team_size=1
     )  # 주당 60분
     d = PlanDraft(
-        milestones=[DraftMilestone(key="m1", order_index=1, title="M", description="")],
-        weekly_goals=[DraftWeeklyGoal(key="w1", milestone_key="m1", week_index=1, title="1주차")],
+        tasks=[DraftTask(key="k1", weekly_goal_key="w1", task_number=1, title="태스크", description="")],
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
         tickets=[
-            DraftTicket(key="t1", weekly_goal_key="w1", order_index=1, title="T",
+            DraftTicket(key="t1", task_key="k1", ticket_number=1, title="T",
                         body="b", est_minutes=120, depends_on=[])
         ],
         nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],

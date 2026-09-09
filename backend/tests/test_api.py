@@ -54,7 +54,7 @@ async def test_목표를_넣으면_로드맵과_아키텍처가_함께_생성된
 
     assert body["project"]["title"] == "테스트 프로젝트"
     assert body["generation"]["status"] == "done"
-    assert len(body["milestones"]) == 1
+    assert len(body["tasks"]) >= 1
     assert len(body["weekly_goals"]) == 2
     assert len(body["tickets"]) == 4
     assert len(body["arch_nodes"]) == 2
@@ -113,7 +113,7 @@ async def test_연기는_상태를_바꾸지_않고_지연만_누적한다(clien
         f"/tickets/{ticket_id}", json={"action": "defer", "new_due_date": "2026-10-01"}
     )
     ticket = res.json()["ticket"]
-    assert ticket["status"] == "todo"        # 상태는 그대로
+    assert ticket["status"] == "open"        # 상태는 그대로
     assert ticket["delay_count"] == 1        # 지연만 누적
     assert ticket["due_date"] == "2026-10-01"
 
@@ -144,7 +144,8 @@ async def test_막힘_사유를_남기면_blocked_이벤트가_쌓인다(client)
         f"/tickets/{ticket_id}/block", json={"reason": "네트워크 동기화가 안 됨"}
     )
     assert res.status_code == 200
-    assert res.json()["ticket"]["status"] == "blocked"
+    # 막힘은 상태가 아니다 — 잡고 있다가 멈춘 것이라 claimed 로 남고 사유가 한 줄 붙는다.
+    assert res.json()["ticket"]["status"] == "claimed"
     assert res.json()["ticket"]["blocked_reason"] == "네트워크 동기화가 안 됨"
 
 

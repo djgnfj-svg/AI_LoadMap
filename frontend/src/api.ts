@@ -1,6 +1,11 @@
 /** 백엔드 API 클라이언트. 타입은 backend/app/models/schemas.py 와 §4 스키마에 맞춘다. */
 
-export type TicketStatus = "todo" | "doing" | "done" | "blocked";
+/** 태스크와 티켓이 같은 낱말을 쓴다.
+ *  ⚠ 「막힘」은 여기 없다 — parked 는 접힘(의도적으로 미룸)이지 막힘이 아니다.
+ *  막힌 티켓은 status 가 claimed 이고 blocked_reason 한 줄이 붙어 있다. */
+export type WorkStatus = "open" | "claimed" | "resolved" | "parked";
+export type TicketStatus = WorkStatus;
+export type TaskStatus = WorkStatus;
 export type NodeStatus = "pending" | "in_progress" | "done" | "at_risk";
 
 export interface Project {
@@ -18,27 +23,33 @@ export interface Project {
   start_date: string;
 }
 
-export interface Milestone {
-  id: string;
-  order_index: number;
-  title: string;
-  description: string | null;
-  target_date: string | null;
-  status: string;
-}
-
+/** 주 — 관리 단위이자 최상위. */
 export interface WeeklyGoal {
   id: string;
-  milestone_id: string;
-  week_index: number;
+  /** ⚠ 아직 주가 안 정해진 것은 null 이다. */
+  week_index: number | null;
   title: string;
   target_date: string | null;
+}
+
+/** 태스크 — 한 덩어리로 묶이는 티켓들의 집. 한 태스크는 한 주에만 산다. */
+export interface Task {
+  id: string;
+  /** ⚠ 주가 안 정해졌으면 null. */
+  weekly_goal_id: string | null;
+  /** 프로젝트 안에서 전역으로 센다. 번호가 없으면 null. */
+  task_number: number | null;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
 }
 
 export interface Ticket {
   id: string;
-  weekly_goal_id: string;
-  order_index: number;
+  /** ⚠ 태스크가 안 정해졌으면 null — 그러면 번호도 없다. */
+  task_id: string | null;
+  /** 태스크마다 1 부터 다시 센다. 티켓을 부르는 이름의 뒷자리다. */
+  ticket_number: number | null;
   title: string;
   body: string | null;
   est_minutes: number;
@@ -84,8 +95,8 @@ export interface ProjectView {
     repairs: string[];
     error: string | null;
   };
-  milestones: Milestone[];
   weekly_goals: WeeklyGoal[];
+  tasks: Task[];
   tickets: Ticket[];
   ticket_dependencies: { ticket_id: string; depends_on: string }[];
   arch_nodes: ArchNodeRow[];
@@ -242,7 +253,7 @@ export type ChangeType =
   | "reduce_ticket"
   | "drop_ticket"
   | "add_dependency"
-  | "shift_milestone";
+  | "shift_week";
 
 export interface ReplanChange {
   id: string;
@@ -257,8 +268,8 @@ export interface ReplanDiff {
   signals: ReplanSignals;
   diagnosis: string;
   rationale: string;
-  scope_milestone_id: string;
-  scope_milestone_title: string;
+  scope_weekly_goal_id: string;
+  scope_weekly_goal_title: string;
   changes: ReplanChange[];
   residual_violations: { code: string; message: string }[];
   repairs: string[];

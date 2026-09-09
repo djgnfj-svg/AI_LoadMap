@@ -62,7 +62,11 @@ async def _split_ticket(conn: asyncpg.Connection, project_id: uuid.UUID, op: dic
     ]
 
     prev = original["id"]
-    base_order = original["order_index"]
+    # 조각은 원래 티켓 바로 뒤에 온다. 번호는 태스크 안에서 이어 붙인다.
+    next_number = await conn.fetchval(
+        "select coalesce(max(ticket_number), 0) from tickets where task_id = $1",
+        original["task_id"],
+    )
     for i, (new_id, part) in enumerate(
         zip(op["new_ticket_ids"], parts[1:], strict=True), start=1
     ):
@@ -70,13 +74,13 @@ async def _split_ticket(conn: asyncpg.Connection, project_id: uuid.UUID, op: dic
         await conn.execute(
             """
             insert into tickets
-              (id, weekly_goal_id, project_id, order_index, title, body, est_minutes, due_date)
+              (id, task_id, project_id, ticket_number, title, body, est_minutes, due_date)
             values ($1, $2, $3, $4, $5, $6, $7, $8)
             """,
             ticket_id,
-            original["weekly_goal_id"],
+            original["task_id"],
             project_id,
-            base_order,
+            next_number + i,
             part["title"],
             original["body"],
             part["est_minutes"],
@@ -125,7 +129,7 @@ async def _reduce_ticket(conn: asyncpg.Connection, project_id: uuid.UUID, op: di
 async def _drop_ticket(conn: asyncpg.Connection, project_id: uuid.UUID, op: dict) -> bool:
     # 이미 손댄 티켓은 지우지 않는다. 한 일을 되돌리는 건 재설계의 일이 아니다.
     result = await conn.execute(
-        "delete from tickets where id = $1 and project_id = $2 and status = 'todo'",
+        "delete from tickets where id = $1 and project_id = $2 and status = 'open'",
         uuid.UUID(op["ticket_id"]),
         project_id,
     )
@@ -133,29 +137,39 @@ async def _drop_ticket(conn: asyncpg.Connection, project_id: uuid.UUID, op: dict
 
 
 async def _add_ticket(conn: asyncpg.Connection, project_id: uuid.UUID, op: dict) -> bool:
-    goal = await conn.fetchrow(
-        "select g.* from weekly_goals g join milestones m on m.id = g.milestone_id "
-        "where g.id = $1 and m.project_id = $2",
-        uuid.UUID(op["weekly_goal_id"]),
+    # 마감일은 태스크가 사는 주에서 온다.
+    task = await conn.fetchrow(
+        """
+        select k.id, g.target_date
+        from tasks k
+        left join weekly_goals g on g.id = k.weekly_goal_id
+        where k.id = $1 and k.project_id = $2
+        """,
+        uuid.UUID(op["task_id"]),
         project_id,
     )
-    if goal is None:
+    if task is None:
         return False
 
+    next_number = await conn.fetchval(
+        "select coalesce(max(ticket_number), 0) + 1 from tickets where task_id = $1",
+        task["id"],
+    )
     ticket_id = uuid.UUID(op["new_ticket_id"])
     await conn.execute(
         """
         insert into tickets
-          (id, weekly_goal_id, project_id, order_index, title, body, est_minutes, due_date)
-        values ($1, $2, $3, 0, $4, $5, $6, $7)
+          (id, task_id, project_id, ticket_number, title, body, est_minutes, due_date)
+        values ($1, $2, $3, $4, $5, $6, $7, $8)
         """,
         ticket_id,
-        goal["id"],
+        task["id"],
         project_id,
+        next_number,
         op["title"],
         op["body"],
         op["est_minutes"],
-        goal["target_date"],
+        task["target_date"],
     )
 
     node_ids = []
@@ -211,30 +225,25 @@ async def _add_dependency(conn: asyncpg.Connection, project_id: uuid.UUID, op: d
     return True
 
 
-async def _shift_milestone(conn: asyncpg.Connection, project_id: uuid.UUID, op: dict) -> bool:
-    """§2.4 — 영향받는 후속 마일스톤 일정 자동 이월. 내용은 건드리지 않는다."""
-    ids = [uuid.UUID(x) for x in op["milestone_ids"]]
+async def _shift_week(conn: asyncpg.Connection, project_id: uuid.UUID, op: dict) -> bool:
+    """§2.4 — 영향받는 후속 주 일정 자동 이월. 내용은 건드리지 않는다."""
+    ids = [uuid.UUID(x) for x in op["weekly_goal_ids"]]
     days = timedelta(days=int(op["days"]))
     if not ids:
         return False
     await conn.execute(
-        "update milestones set target_date = target_date + $2 "
+        "update weekly_goals set target_date = target_date + $2 "
         "where id = any($1::uuid[]) and project_id = $3",
         ids,
         days,
         project_id,
     )
-    await conn.execute(
-        "update weekly_goals set target_date = target_date + $2 "
-        "where milestone_id = any($1::uuid[])",
-        ids,
-        days,
-    )
+    # 티켓의 마감일은 그 티켓이 든 태스크가 사는 주를 따라간다.
     await conn.execute(
         """
         update tickets t set due_date = t.due_date + $2
-        from weekly_goals g
-        where g.id = t.weekly_goal_id and g.milestone_id = any($1::uuid[])
+        from tasks k
+        where k.id = t.task_id and k.weekly_goal_id = any($1::uuid[])
         """,
         ids,
         days,
@@ -248,5 +257,5 @@ _HANDLERS = {
     "drop_ticket": _drop_ticket,
     "add_ticket": _add_ticket,
     "add_dependency": _add_dependency,
-    "shift_milestone": _shift_milestone,
+    "shift_week": _shift_week,
 }

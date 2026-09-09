@@ -88,69 +88,67 @@ async def persist_plan(
         constraints.model_dump(),
     )
 
-    # ── 마일스톤 ───────────────────────────────────────────────
-    goals_by_milestone: dict[str, list[int]] = {}
-    for g in draft.weekly_goals:
-        goals_by_milestone.setdefault(g.milestone_key, []).append(g.week_index)
-
-    milestone_ids: dict[str, uuid.UUID] = {}
-    for order, m in enumerate(sorted(draft.milestones, key=lambda x: x.order_index), start=1):
-        weeks = goals_by_milestone.get(m.key)
-        target = _week_end(start, max(weeks)) if weeks else None
-        milestone_ids[m.key] = await conn.fetchval(
-            """
-            insert into milestones (project_id, order_index, title, description, target_date)
-            values ($1, $2, $3, $4, $5)
-            returning id
-            """,
-            project_id,
-            order,
-            m.title,
-            m.description or None,
-            target,
-        )
-
-    # ── 주차별 목표 ────────────────────────────────────────────
+    # ── 주 (관리 단위이자 최상위) ──────────────────────────────
     goal_ids: dict[str, uuid.UUID] = {}
     goal_target: dict[str, date] = {}
-    for g in sorted(draft.weekly_goals, key=lambda x: (x.milestone_key, x.week_index)):
-        milestone_id = milestone_ids.get(g.milestone_key)
-        if milestone_id is None:
-            continue  # critic 이 잡았어야 할 끊긴 참조. 저장 단계에서는 조용히 버린다.
+    for g in sorted(draft.weekly_goals, key=lambda x: x.week_index):
         target = _week_end(start, g.week_index)
         goal_target[g.key] = target
         goal_ids[g.key] = await conn.fetchval(
             """
-            insert into weekly_goals (milestone_id, week_index, title, target_date)
+            insert into weekly_goals (project_id, week_index, title, target_date)
             values ($1, $2, $3, $4)
             returning id
             """,
-            milestone_id,
+            project_id,
             g.week_index,
             g.title,
             target,
         )
 
-    # ── 티켓 ───────────────────────────────────────────────────
-    ticket_ids: dict[str, uuid.UUID] = {}
-    for t in sorted(draft.tickets, key=lambda x: (x.weekly_goal_key, x.order_index)):
-        goal_id = goal_ids.get(t.weekly_goal_key)
+    # ── 태스크 ─────────────────────────────────────────────────
+    # 번호는 프로젝트 안에서 전역으로 센다. 2 주에 17 번 태스크가 있을 수 있다.
+    task_ids: dict[str, uuid.UUID] = {}
+    task_goal: dict[str, str] = {}
+    for k in sorted(draft.tasks, key=lambda x: x.task_number):
+        goal_id = goal_ids.get(k.weekly_goal_key)
         if goal_id is None:
+            continue  # critic 이 잡았어야 할 끊긴 참조. 저장 단계에서는 조용히 버린다.
+        task_goal[k.key] = k.weekly_goal_key
+        task_ids[k.key] = await conn.fetchval(
+            """
+            insert into tasks (project_id, weekly_goal_id, task_number, title, description)
+            values ($1, $2, $3, $4, $5)
+            returning id
+            """,
+            project_id,
+            goal_id,
+            k.task_number,
+            k.title,
+            k.description or None,
+        )
+
+    # ── 티켓 ───────────────────────────────────────────────────
+    # 마감일은 티켓이 든 태스크가 사는 주에서 온다.
+    ticket_ids: dict[str, uuid.UUID] = {}
+    for t in sorted(draft.tickets, key=lambda x: (x.task_key, x.ticket_number)):
+        task_id = task_ids.get(t.task_key)
+        if task_id is None:
             continue
         ticket_ids[t.key] = await conn.fetchval(
             """
             insert into tickets
-              (weekly_goal_id, project_id, order_index, title, body, est_minutes, due_date)
+              (task_id, project_id, ticket_number, title, body, est_minutes, due_date)
             values ($1, $2, $3, $4, $5, $6, $7)
             returning id
             """,
-            goal_id,
+            task_id,
             project_id,
-            t.order_index,
+            t.ticket_number,
             t.title,
             t.body,
             t.est_minutes,
-            goal_target.get(t.weekly_goal_key),
+            goal_target.get(task_goal.get(t.task_key, "")),
         )
 
     dep_rows = [
@@ -238,22 +236,20 @@ async def load_draft(conn: asyncpg.Connection, project_id: uuid.UUID) -> PlanDra
     from app.models.schemas import (
         DraftEdge,
         DraftLink,
-        DraftMilestone,
         DraftNode,
+        DraftTask,
         DraftTicket,
         DraftWeeklyGoal,
     )
 
-    milestones = await conn.fetch(
-        "select * from milestones where project_id = $1 order by order_index", project_id
-    )
     goals = await conn.fetch(
-        "select g.* from weekly_goals g join milestones m on m.id = g.milestone_id "
-        "where m.project_id = $1 order by g.week_index",
-        project_id,
+        "select * from weekly_goals where project_id = $1 order by week_index", project_id
+    )
+    tasks = await conn.fetch(
+        "select * from tasks where project_id = $1 order by task_number", project_id
     )
     tickets = await conn.fetch(
-        "select * from tickets where project_id = $1 order by order_index", project_id
+        "select * from tickets where project_id = $1 order by ticket_number", project_id
     )
     deps = await conn.fetch(
         "select d.* from ticket_dependencies d join tickets t on t.id = d.ticket_id "
@@ -274,35 +270,38 @@ async def load_draft(conn: asyncpg.Connection, project_id: uuid.UUID) -> PlanDra
         depends.setdefault(str(d["ticket_id"]), []).append(str(d["depends_on"]))
 
     return PlanDraft(
-        milestones=[
-            DraftMilestone(
-                key=str(m["id"]),
-                order_index=m["order_index"],
-                title=m["title"],
-                description=m["description"] or "",
-            )
-            for m in milestones
-        ],
         weekly_goals=[
             DraftWeeklyGoal(
                 key=str(g["id"]),
-                milestone_key=str(g["milestone_id"]),
                 week_index=g["week_index"],
                 title=g["title"],
             )
             for g in goals
+            if g["week_index"] is not None
+        ],
+        tasks=[
+            DraftTask(
+                key=str(k["id"]),
+                weekly_goal_key=str(k["weekly_goal_id"]),
+                task_number=k["task_number"],
+                title=k["title"],
+                description=k["description"] or "",
+            )
+            for k in tasks
+            if k["weekly_goal_id"] is not None and k["task_number"] is not None
         ],
         tickets=[
             DraftTicket(
                 key=str(t["id"]),
-                weekly_goal_key=str(t["weekly_goal_id"]),
-                order_index=t["order_index"],
+                task_key=str(t["task_id"]),
+                ticket_number=t["ticket_number"],
                 title=t["title"],
                 body=t["body"] or "",
                 est_minutes=t["est_minutes"],
                 depends_on=depends.get(str(t["id"]), []),
             )
             for t in tickets
+            if t["task_id"] is not None and t["ticket_number"] is not None
         ],
         nodes=[
             DraftNode(

@@ -43,7 +43,7 @@ export function ArchDiagram({
     const ticketStatus = new Map(view.tickets.map((t) => [t.id, t.status]));
     const counts: Record<string, number> = {};
     for (const link of view.ticket_node_links) {
-      if (ticketStatus.get(link.ticket_id) === "done") {
+      if (ticketStatus.get(link.ticket_id) === "resolved") {
         counts[link.node_id] = (counts[link.node_id] ?? 0) + 1;
       }
     }

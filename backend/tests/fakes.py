@@ -12,7 +12,7 @@ from app.models.schemas import (
     DecomposeResult,
     DraftEdge,
     DraftLink,
-    DraftMilestone,
+    DraftTask,
     DraftNode,
     DraftTicket,
     DraftWeeklyGoal,
@@ -23,18 +23,26 @@ from app.models.schemas import (
 
 def make_decompose(est_minutes: int = 90, n_tickets: int = 4) -> DecomposeResult:
     return DecomposeResult(
-        milestones=[
-            DraftMilestone(key="m1", order_index=1, title="프로토타입", description="첫 동작")
-        ],
         weekly_goals=[
-            DraftWeeklyGoal(key="w1", milestone_key="m1", week_index=1, title="1주차 - 기반"),
-            DraftWeeklyGoal(key="w2", milestone_key="m1", week_index=2, title="2주차 - 연결"),
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주 - 기반"),
+            DraftWeeklyGoal(key="w2", week_index=2, title="2주 - 연결"),
+        ],
+        tasks=[
+            DraftTask(
+                key="k1", weekly_goal_key="w1", task_number=1,
+                title="기반", description="첫 동작",
+            ),
+            DraftTask(
+                key="k2", weekly_goal_key="w2", task_number=2,
+                title="연결", description="이어 붙인다",
+            ),
         ],
         tickets=[
             DraftTicket(
                 key=f"t{i}",
-                weekly_goal_key="w1" if i <= n_tickets // 2 else "w2",
-                order_index=i,
+                task_key="k1" if i <= n_tickets // 2 else "k2",
+                # 번호는 태스크마다 1 부터 다시 센다
+                ticket_number=i if i <= n_tickets // 2 else i - n_tickets // 2,
                 title=f"티켓 {i}",
                 body="## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 통과\n",
                 est_minutes=est_minutes,
