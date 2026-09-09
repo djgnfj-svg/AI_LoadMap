@@ -20,7 +20,7 @@ supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 �
                                0004 가 users 를 넣고 프로젝트에 주인을 붙인다
                                0005 가 인터뷰 문답을 프로젝트에 붙인다
                                0006 이 완성 청사진과 주별 covers 를 넣는다
-                               0007 이 도메인 프리셋을 넣는다 (코딩 아닌 목표)
+                               0007 · 0008 이 도메인 프리셋을 넣는다 (소프트웨어 · 게임 · 그 밖)
 scripts/setup.sh               로컬 세팅 한 방
 scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
@@ -35,7 +35,7 @@ backend/
   app/graphs/                  LangGraph 생성 그래프
     critic.py                  검증 (LLM 미개입) — 이 그래프의 존재 이유
     interview.py               1라운드 고정 질문 (LLM 미개입) + 답변 → 제약 반영
-    domains.py                 도메인 프리셋 — 소프트웨어 / 일반. 낱말만 갈아끼운다
+    domains.py                 도메인 프리셋 — 소프트웨어 / 게임 / 그 밖. 낱말만 갈아끼운다
     repair.py                  재시도 소진 시 결정적 복구
     plan_graph.py              intake → interview → blueprint → decompose → architect → link → critic → emit
     replan_graph.py            collect_signals → diagnose → replan_scope → propose → critic → diff
@@ -54,15 +54,21 @@ backend/
 
 ## 도메인
 
-코딩만 되는 도구가 아닙니다. 구조(주 > 태스크 > 티켓, 티켓이 노드를 채우고 지연이
-쌓이면 재점검일)는 그대로 두고 **낱말만 갈아끼웁니다** — `app/graphs/domains.py`.
+축은 **무엇을 만드는가**입니다. 티켓을 끝내면 그림의 한 칸이 차오르는 게 이 도구의
+전부라, 만들어지는 것이 있어야 성립합니다.
 
-| | 소프트웨어 | 일반 (학습 · 콘텐츠 · 사업 …) |
-|---|---|---|
-| 오른쪽 그림 | 아키텍처 · 컴포넌트 | 구성요소 지도 · 구성요소 |
-| 노드 유형 | service · store · client · external | deliverable · skill · resource · external |
-| 노드 층 | frontend · backend · data · infra | output · practice · input · support |
-| 완료 조건 예시 | "테스트 3개 통과", "빌드 성공" | "모의고사 1회분 채점 완료", "영상 1편 업로드" |
+구조(주 > 태스크 > 티켓, 티켓이 노드를 채우고 지연이 쌓이면 재점검일)는 그대로 두고
+**낱말만 갈아끼웁니다** — `app/graphs/domains.py`.
+
+| | 소프트웨어 | 게임 제작 | 그 밖의 만들기 |
+|---|---|---|---|
+| 오른쪽 그림 | 아키텍처 · 컴포넌트 | 게임 구조도 · 시스템 | 구성요소 지도 · 구성요소 |
+| 노드 유형 | service · store · client | system · stage · asset | deliverable · skill · resource |
+| 노드 층 | frontend · backend · data · infra | play · rule · content · build | output · practice · input · support |
+| 완료 조건 예시 | "테스트 3개 통과" | "친구 4명이 30분을 끊김 없이 돈다" | "영상 1편 업로드" |
+
+게임은 소프트웨어지만 낱말이 다릅니다 — 막히는 자리가 「백엔드」가 아니라
+넷코드 · 보스 스테이지 · 사운드입니다. 그 낱말로 불러야 알람이 진단으로 읽힙니다.
 
 목표 문장으로 AI 가 추정하고, **완성 기준 확정 화면에서 사용자가 바꿉니다.**
 
@@ -167,7 +173,7 @@ cp .env.example .env       # 레포 루트에 둔다. 백엔드가 루트에서 
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 162개
+.venv/bin/python -m pytest -q          # 163개
 .venv/bin/ruff check app tests scripts
 
 cd ../frontend

@@ -108,14 +108,15 @@ class MockPlanner:
         hours = _int_from(prompt, r"주당?\s*(\d+)\s*시간", 10)
         goal = prompt.split("목표:", 1)[-1].strip().splitlines()[0][:20] or "새 프로젝트"
         # 목업이라 판정할 수 없다. 낱말 몇 개로만 가른다 — 실제 판정은 LLM 이 한다.
-        made = ("게임", "앱", "서비스", "웹", "봇", "도구", "사이트", "api")
-        learned = ("배우", "공부", "자격", "시험", "점수", "합격", "익히")
         text = prompt.lower()
-        domain = (
-            "general"
-            if any(w in text for w in learned) or not any(w in text for w in made)
-            else "software"
-        )
+        game = ("게임", "레벨", "스테이지", "유니티", "언리얼", "플레이어", "멀티플레이")
+        software = ("앱", "서비스", "웹", "봇", "도구", "사이트", "api", "라이브러리")
+        if any(w in text for w in game):
+            domain = "game"
+        elif any(w in text for w in software):
+            domain = "software"
+        else:
+            domain = "general"
         return IntakeResult(
             title=goal,
             constraints=Constraints(

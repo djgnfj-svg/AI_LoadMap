@@ -275,7 +275,7 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
       {confirming && (
         <div className="blueprint-edit">
           <div className="field">
-            <label htmlFor="bp-domain">무엇을 하는 목표인가요</label>
+            <label htmlFor="bp-domain">무엇을 만드는 목표인가요</label>
             <div className="domain-pick" id="bp-domain">
               {DOMAINS.map((d) => (
                 <button

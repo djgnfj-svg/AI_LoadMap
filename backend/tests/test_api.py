@@ -359,7 +359,7 @@ async def test_청사진_확정_도중_새로고침해도_이어진다(client):
 async def test_도메인은_청사진과_함께_사용자가_확정한다(client):
     """§1.5 — AI 판정이 틀렸으면 사용자가 바꾼다. 그 뒤 낱말이 바뀐다."""
     client.app.state.runner = PlanRunner(FakePlanner(domain="software"))
-    project_id = await _create(client, goal_text="3개월 안에 토익 900점 만들기")
+    project_id = await _create(client, goal_text="3개월 안에 코옵 게임 하나 출시하기")
     body = (await client.get(f"/projects/{project_id}")).json()
     await client.post(
         f"/projects/{project_id}/clarify",
@@ -369,11 +369,15 @@ async def test_도메인은_청사진과_함께_사용자가_확정한다(client
 
     res = await client.post(
         f"/projects/{project_id}/blueprint",
-        json={"summary": "", "criteria": ["모의고사 900점을 넘긴다"], "domain": "general"},
+        json={
+            "summary": "",
+            "criteria": ["친구 4명이 30분을 완주한다"],
+            "domain": "game",
+        },
     )
     assert res.status_code == 200
     await _wait(client, project_id)
 
     body = (await client.get(f"/projects/{project_id}")).json()
-    assert body["project"]["domain"] == "general"
+    assert body["project"]["domain"] == "game"
     assert body["generation"]["status"] == "done"

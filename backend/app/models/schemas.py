@@ -11,11 +11,14 @@ from pydantic import BaseModel, Field
 Level = Literal["beginner", "intermediate", "advanced"]
 # 도메인 프리셋 (SPEC §1.5). 낱말만 갈아끼운다 — 구조는 도메인과 무관하다.
 # 값과 뜻은 app/graphs/domains.py 에 있다.
-Domain = Literal["software", "general"]
+# 축은 「무엇을 만드는가」다. 만들어지는 것이 없으면 티켓이 노드를 채울 수 없다.
+Domain = Literal["software", "game", "general"]
 NodeType = Literal[
     # software
     "service", "store", "client",
-    # general
+    # game
+    "system", "stage", "asset",
+    # 그 밖의 만들기
     "deliverable", "skill", "resource",
     # 공통 — 내가 만들지 않는 것
     "external",
@@ -23,7 +26,9 @@ NodeType = Literal[
 Layer = Literal[
     # software
     "frontend", "backend", "data", "infra",
-    # general
+    # game
+    "play", "rule", "content", "build",
+    # 그 밖의 만들기
     "output", "practice", "input", "support",
 ]
 # 태스크와 티켓이 같은 낱말을 쓴다.

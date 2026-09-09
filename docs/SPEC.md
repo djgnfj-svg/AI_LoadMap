@@ -103,21 +103,28 @@ AI가 필수인 시대가 되면서 진입 장벽이 코딩에서 **기획**으�
 - 계획은 세울 줄 알지만 프로젝트 간 궤적이 흐려짐
 - 코딩 에이전트를 쓰므로 **티켓 = 프롬프트 단위**로 바로 소비 가능
 
-**2차 (확장)** — 비개발자 입문자 / 부트캠프 수강생
+**2차 (확장)** — 게임 · 콘텐츠 등 **만드는 사람** 전반
+- 소프트웨어가 아니어도 만들어지는 것이 있으면 같은 구조가 성립한다
 - 목표를 구조화해서 말하지 못함 → 인터뷰(§3.3)와 도메인 프리셋이 필수
 
 #### 도메인 프리셋 (2026-09-09 개정)
 
-구조는 도메인과 무관하다 — 주 > 태스크 > 티켓, 티켓이 노드를 채우고, 지연이 쌓이면 재점검일이 잡힌다. **도메인마다 다른 것은 낱말뿐이다.** 그래서 프리셋 하나를 프롬프트에 끼우는 값 묶음으로 두고(`backend/app/graphs/domains.py`) 그래프·critic·감지는 건드리지 않는다.
+축은 **무엇을 만드는가**다. 이 도구는 만들어지는 것이 있어야 성립한다 — 티켓을 끝내면 그림의 한 칸이 차오르는 게 전부이기 때문이다. 점수나 습관에는 채울 칸이 없다. 그래서 확장 방향은 학습 쪽이 아니라 **제작 쪽**이다.
 
-| | 소프트웨어 | 일반 |
-|---|---|---|
-| 그림 이름 | 아키텍처 | 구성요소 지도 |
-| 노드 | 컴포넌트 | 구성요소 |
-| `node_type` | service · store · client · external | deliverable · skill · resource · external |
-| `layer` | frontend · backend · data · infra | output · practice · input · support |
-| 티켓 본문 | 코딩 에이전트에 붙여넣는다 | 처음 하는 사람이 따라 한다 |
-| 완료 조건 예시 | "테스트 3개 통과", "빌드 성공" | "모의고사 1회분 채점 완료", "영상 1편 업로드" |
+구조는 도메인과 무관하다 — 주 > 태스크 > 티켓, 티켓이 노드를 채우고, 지연이 쌓이면 재점검일이 잡힌다. **다른 것은 낱말뿐이다.** 그래서 프리셋 하나를 프롬프트에 끼우는 값 묶음으로 두고(`backend/app/graphs/domains.py`) 그래프·critic·감지는 건드리지 않는다.
+
+| | 소프트웨어 | 게임 제작 | 그 밖의 만들기 |
+|---|---|---|---|
+| 그림 이름 | 아키텍처 | 게임 구조도 | 구성요소 지도 |
+| 노드 | 컴포넌트 | 시스템 | 구성요소 |
+| `node_type` | service · store · client | system · stage · asset | deliverable · skill · resource |
+| `layer` | frontend · backend · data · infra | play · rule · content · build | output · practice · input · support |
+| 티켓 본문 | 코딩 에이전트에 붙여넣는다 | 코드는 에이전트에, 에셋은 무엇을 몇 개 만들지 | 처음 하는 사람이 따라 한다 |
+| 완료 조건 예시 | "테스트 3개 통과", "빌드 성공" | "친구 4명이 30분을 끊김 없이 돈다" | "영상 1편 업로드", "시제품 1개 조립" |
+
+`external`(내가 만들지 않는 것)은 세 프리셋이 함께 쓴다.
+
+⚠ **게임은 소프트웨어지만 낱말이 다르다.** 게임 로드맵에서 막히는 자리는 「백엔드」가 아니라 넷코드·보스 스테이지·사운드다. 그 낱말로 불러야 §2.3 의 알람이 진단으로 읽힌다 (R5).
 
 도메인은 `intake` 가 목표 문장으로 **추정**하고, 사용자가 청사진 확정 화면에서 **바꾼다**. 추정이 틀려도 계획이 만들어지기 전에 사용자가 잡는다.
 
@@ -495,7 +502,7 @@ create table projects (
   constraints   jsonb not null,         -- {duration_weeks, hours_per_week, level, stack[], team_size}
   interview     jsonb not null default '[]',  -- §3.3 문답 전문 [{round, field, question, answer}]
   blueprint     jsonb not null default '{}',  -- §3.3 {summary, criteria:[{key, text}], confirmed}
-  domain        text not null default 'software',  -- §1.5 software | general
+  domain        text not null default 'software',  -- §1.5 software | game | general
   status        text default 'active',  -- active | paused | done | abandoned
   created_at    timestamptz default now()
 );
