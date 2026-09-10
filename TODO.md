@@ -130,7 +130,7 @@ D11 완료 기준은 "공개 URL 동작" 한 줄뿐이다.
       실제 패키지는 `orjson.blocked/` 로 비켜뒀다.
       **`uv pip install` 로 의존성을 다시 깔면 날아가고 백엔드가 다시 안 뜬다.**
 
-## 6. 랭체인 고도화 · 랭스미스 (2026-09-10 검토)
+## 6. LangGraph 고도화 · LangSmith (2026-09-10 검토)
 
 **남은 날 — 접수 09-18 까지 8일, 과제 제출 09-20 까지 10일.** D11(UI 정리 + 배포,
 09-17)이 진행 중이고 배포 방식은 §4 대로 아직 안 정했다.
@@ -185,7 +185,9 @@ self._client = wrappers.wrap_anthropic(AsyncAnthropic(api_key=key))
 - [Trace LangGraph applications](https://docs.langchain.com/langsmith/trace-with-langgraph)
 - [`wrap_anthropic` 레퍼런스](https://reference.langchain.com/python/langsmith/wrappers/_anthropic/wrap_anthropic)
 
-### 6.3 진짜 「고도화」는 §3-2 다
+### 6.3 LangGraph 고도화 = checkpointer (§3-2)
 
-LangGraph 쪽에 남은 실제 부채는 **checkpointer 부재**(§3-2)다. 프레임워크를 바꾸는
-것보다 이게 크다. 다만 지금 동작하므로 순서는 그대로 — **배포(D11) 다음이다.**
+「고도화」의 본체는 여기다. LangChain 은 애초에 논점이 아니었고(6.1), 남은 실제
+부채는 **checkpointer 부재**(§3-2)다 — 사람이 기다리는 두 지점(인터뷰·청사진)마다
+`intake` 부터 통째로 다시 돈다. `AsyncPostgresSaver` + `interrupt()` 가 답이다.
+다만 지금 동작하므로 순서는 그대로 — **배포(D11) 다음이다.**
