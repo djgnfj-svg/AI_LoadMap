@@ -122,17 +122,52 @@ async def test_처음에는_청사진부터_묻고_멈춘다():
     assert result["awaiting_clarify"] is True
     fields = [q.field for q in result["clarify_questions"]]
     assert fields[0] == "blueprint"
-    assert fields[:4] == ["blueprint", "done_when", "starting_point", "deadline"]
+    # 1번이 청사진이고, 나머지는 전부 자기 사정을 짚어 보게 하는 질문이다.
+    assert fields == [
+        "blueprint",
+        "team_size",
+        "level",
+        "starting_point",
+        "deadline",
+        "hours_per_week",
+    ]
     assert decompose_calls(planner) == 0  # 답을 받기 전에는 분해하지 않는다
     # 1라운드 질문은 LLM 이 만들지 않는다.
     assert "ClarifyResult" not in planner.calls
 
 
-async def test_추측한_가용시간은_1라운드에_같이_묻는다():
-    planner = FakePlanner(missing=["hours_per_week"])
-    result = await step(planner)
+async def test_자기_사정은_추측이_있어도_묻는다():
+    """intake 가 채웠든 아니든 인원·실력·기간·주간시간은 사람에게 묻는다.
 
-    assert [q.field for q in result["clarify_questions"]][-1] == "hours_per_week"
+    추측이 맞았는지 사용자가 알 방법이 없으면, 틀렸을 때 되돌릴 자리도 없다.
+    """
+    asked = {q.field for q in (await step(FakePlanner()))["clarify_questions"]}
+    guessed = {q.field for q in (await step(FakePlanner(missing=[])))["clarify_questions"]}
+
+    assert {"team_size", "level", "deadline", "hours_per_week"} <= asked
+    assert asked == guessed
+
+
+async def test_사람_말로_적은_인원과_실력을_읽는다():
+    """「혼자」에는 숫자가 없고 「3년 했어요」는 영문 enum 이 아니다."""
+    planner = FakePlanner()
+    first = await step(planner)
+    result = await step(
+        planner,
+        interview=first["interview"],
+        clarify_answers={
+            "blueprint": "붙이면 도는 것",
+            "team_size": "저 혼자요",
+            "level": "유니티로 3년 했어요",
+            "hours_per_week": "주 10~15시간",
+        },
+    )
+
+    c = result["constraints"]
+    assert c.team_size == 1
+    assert c.level == "advanced"
+    # 자릿수를 이어 붙이면 1015 가 된다. 첫 숫자만 읽는다.
+    assert c.hours_per_week == 10
 
 
 async def test_답변_원문이_decompose_프롬프트에_들어간다():
@@ -311,7 +346,7 @@ async def test_청사진만_답해도_계획은_나온다():
     assert result["critic"].ok
     answers = {t.field: t.answer for t in result["interview"]}
     assert answers["blueprint"] == "붙이면 도는 것"
-    assert answers["done_when"] == ""  # 나머지는 건너뛴 그대로다
+    assert answers["starting_point"] == ""  # 나머지는 건너뛴 그대로다
 
 
 async def test_기준을_안_맡은_계획은_다시_쪼갠다():

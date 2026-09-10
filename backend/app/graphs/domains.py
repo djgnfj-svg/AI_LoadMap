@@ -39,6 +39,11 @@ class DomainPreset:
     # 1라운드 고정 질문 (SPEC §3.3). **field 는 도메인이 달라도 같다** —
     # apply_answers 가 field 로 제약을 읽고, 화면도 field 로 답을 맞춘다.
     # 갈리는 것은 묻는 말뿐이다.
+    #
+    # 순서도 도메인이 달라도 같다: **1번이 청사진**이고, 나머지는 전부
+    # 자기 사정을 짚어 보게 하는 질문이다 (인원 · 실력 · 지금 위치 · 기간 · 주간 시간).
+    # 이 다섯이 곧 Constraints 이고, 계획의 크기를 정하는 것은 목표가 아니라 이쪽이다.
+    # 추론에 맡기지 않고 전부 묻는다 — 틀린 추론은 되돌릴 자리가 없다.
     questions: list[tuple[str, str]]
 
 
@@ -65,10 +70,12 @@ SOFTWARE = DomainPreset(
     architect_hint="이 프로젝트가 만들 시스템의 컴포넌트와 호출 관계를 그린다.",
     stack_word="스택",
     questions=[
-        ("blueprint", "켜면 무엇이 보이고, 무엇을 할 수 있나요?"),
-        ("done_when", "무엇이 되면 쓸 수 있나요? 두세 개."),
+        ("blueprint", "당신이 만들고자 하는 것의 청사진이 무엇인가요?"),
+        ("team_size", "몇 명이 만드나요?"),
+        ("level", "이런 걸 만들어 본 적 있나요?"),
         ("starting_point", "지금 어디까지 돼 있나요?"),
         ("deadline", "언제까지 만드시나요?"),
+        ("hours_per_week", "한 주에 몇 시간 쓸 수 있나요?"),
     ],
 )
 
@@ -104,10 +111,12 @@ GAME = DomainPreset(
     ),
     stack_word="엔진 · 도구",
     questions=[
-        ("blueprint", "플레이어가 무엇을 하고, 한 판이 어떻게 끝나나요?"),
-        ("done_when", "무엇이 되면 할 만한가요? 두세 개."),
+        ("blueprint", "당신이 만들고자 하는 게임의 청사진이 무엇인가요?"),
+        ("team_size", "몇 명이 만드나요?"),
+        ("level", "게임을 만들어 본 적 있나요?"),
         ("starting_point", "지금 어디까지 돼 있나요?"),
         ("deadline", "언제까지 만드시나요?"),
+        ("hours_per_week", "한 주에 몇 시간 쓸 수 있나요?"),
     ],
 )
 
@@ -130,17 +139,21 @@ WEB = DomainPreset(
     ],
     node_key_examples="'landing', 'auth', 'billing'",
     ticket_hint="티켓 본문은 코딩 에이전트에 그대로 붙여넣을 수 있어야 한다.",
-    criteria_examples='"로그인해서 글을 쓰고 남에게 보인다", "배포한 주소로 열린다", "결제가 실제로 찍힌다"',
+    criteria_examples=(
+        '"로그인해서 글을 쓰고 남에게 보인다", "배포한 주소로 열린다", "결제가 실제로 찍힌다"'
+    ),
     architect_hint=(
         "이 서비스를 이루는 화면과 서버, 저장소를 그린다. "
         "사람이 무엇을 눌러 어디로 가는지가 화살표다."
     ),
     stack_word="스택",
     questions=[
-        ("blueprint", "누가 들어와서 무엇을 하고 나가나요?"),
-        ("done_when", "무엇이 되면 열어도 되나요? 두세 개."),
+        ("blueprint", "당신이 만들고자 하는 서비스의 청사진이 무엇인가요?"),
+        ("team_size", "몇 명이 만드나요?"),
+        ("level", "이런 걸 만들어 본 적 있나요?"),
         ("starting_point", "지금 어디까지 돼 있나요?"),
         ("deadline", "언제까지 여시나요?"),
+        ("hours_per_week", "한 주에 몇 시간 쓸 수 있나요?"),
     ],
 )
 

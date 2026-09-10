@@ -115,9 +115,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
 
         # 아직 아무것도 안 물었다 — 1라운드.
         if round_no == 0:
-            questions = interview_rules.first_round(
-                state.get("missing") or [], constraints, state.get("domain")
-            )
+            questions = interview_rules.first_round(state.get("domain"))
             turns += [
                 InterviewTurn(round=1, field=q.field, question=q.question) for q in questions
             ]

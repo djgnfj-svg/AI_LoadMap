@@ -18,44 +18,56 @@ from datetime import date
 from app.graphs import domains
 from app.models.schemas import ClarifyQuestion, Constraints, InterviewTurn
 
-# 한 라운드에 묻는 질문 수 상한 (SPEC §3.3)
-MAX_QUESTIONS_PER_ROUND = 5
+# 한 라운드에 묻는 질문 수 상한 (SPEC §3.3).
+# 5 였던 것을 6 으로 올렸다 — 다섯 칸이 한 화면에 쏟아지던 때의 숫자였고,
+# 지금은 한 번에 하나씩 내민다. 1라운드 고정 질문(청사진 + 자기 사정 다섯)이 6개다.
+MAX_QUESTIONS_PER_ROUND = 6
 # 인터뷰 라운드 상한. 1라운드는 고정 질문, 2라운드는 LLM 후속 질문.
 # 더 늘리면 계획을 만들기도 전에 사람이 지친다.
 MAX_ROUNDS = 2
 
 # 1라운드 질문은 **도메인이 쥔다** (graphs/domains.py 의 preset.questions).
-# 무엇을 만드는지는 첫 화면에서 이미 골랐으므로, 두 번째 질문부터는 그것에 맞춰
-# 갈라져야 한다. 게임을 만드는 사람에게 「화면에 무엇이 있나요」라고 묻지 않는다.
 #
-# 순서는 도메인이 달라도 같다 — 청사진이 먼저다. 「목표가 뭐예요」가 아니라
-# 「끝났을 때 무엇이 있나요」로 묻는다. 앞의 질문에는 하고 싶은 것을 적고,
-# 뒤의 질문에는 만들 것을 적기 때문이다.
+# 1번은 청사진이다. 「목표가 뭐예요」가 아니라 「무엇을 만드나요」로 묻는다 —
+# 앞의 질문에는 하고 싶은 것을 적고, 뒤의 질문에는 만들 것을 적기 때문이다.
+#
+# 2번부터는 전부 **자기 사정을 짚어 보게 하는 질문**이다: 인원 · 실력 · 지금 위치 ·
+# 기간 · 주간 시간. 계획의 크기를 정하는 것은 목표가 아니라 이쪽이고, 사람은
+# 대개 이걸 안 세어 보고 시작한다. 세어 보게 하는 것 자체가 이 단계의 값이다.
+# 그래서 intake 가 추측했든 아니든 **전부 묻는다** — 틀린 추측은 되돌릴 자리가 없다.
 
 # 건너뛸 수 없는 질문. 이 답이 없으면 계획이 **무엇을 향하는지** 정할 수 없고,
 # 그 뒤의 완성 기준·주·티켓이 전부 남의 목표가 된다. 비워 보내면 다시 묻는다.
 REQUIRED_FIELDS = frozenset({"blueprint"})
 
-# intake 가 추측으로 채운 것 중, 답이 없으면 계획 자체가 어긋나는 필드.
-# 나머지 추측 필드(level, stack, team_size)는 2라운드에서 LLM 이 필요하면 묻는다.
-_CRITICAL_FIELDS: dict[str, str] = {
-    "hours_per_week": "한 주에 몇 시간 쓸 수 있나요? (지금 {value}시간)",
-}
+# 「실력」 답은 사람 말로 온다. 좁게만 읽는다 — 애매한 답을 억지로 분류하느니
+# intake 의 추론값을 그대로 두는 게 낫다. 순서대로 먼저 걸리는 것이 이긴다.
+_LEVEL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(r"처음|입문|초보|생초|해\s*본\s*적\s*(이|은)?\s*없|경험\s*(이|은)?\s*없"),
+        "beginner",
+    ),
+    (
+        re.compile(r"\d+\s*년|직업|실무|업무|전문|능숙|숙련|고급|상급|많이\s*(만들|해)"),
+        "advanced",
+    ),
+    (
+        re.compile(r"몇\s*(번|개)|조금|좀|취미|중급|해\s*봤|만들어\s*봤|해\s*본\s*적"),
+        "intermediate",
+    ),
+]
+
+# 「혼자」에는 숫자가 없다. 이 말이 team_size 답의 대부분이다.
+_ALONE = re.compile(r"혼자|1인|나\s*뿐|저\s*뿐")
 
 
-def first_round(
-    missing: list[str], constraints: Constraints, domain: str | None = None
-) -> list[ClarifyQuestion]:
-    """1라운드 질문. 도메인 질문 + 답이 없으면 계획이 어긋나는 추측 필드."""
+def first_round(domain: str | None = None) -> list[ClarifyQuestion]:
+    """1라운드 질문. 도메인 프리셋이 통째로 쥔다 (청사진 + 자기 사정 다섯)."""
     preset = domains.preset(domain)
-    questions = [ClarifyQuestion(field=f, question=q) for f, q in preset.questions]
-    values = constraints.model_dump()
-    for field, template in _CRITICAL_FIELDS.items():
-        if field in missing:
-            questions.append(
-                ClarifyQuestion(field=field, question=template.format(value=values.get(field)))
-            )
-    return questions[:MAX_QUESTIONS_PER_ROUND]
+    return [
+        ClarifyQuestion(field=f, question=q)
+        for f, q in preset.questions[:MAX_QUESTIONS_PER_ROUND]
+    ]
 
 
 def pending(turns: list[InterviewTurn]) -> list[ClarifyQuestion]:
@@ -104,13 +116,23 @@ def apply_answers(
         return constraints
     data = constraints.model_dump()
 
+    # 첫 숫자만 읽는다. 자릿수를 이어 붙이면 "2~3명" 이 23명이 되고,
+    # "주 10~15시간" 이 1015시간이 된다 — 물어보는 질문이 늘어난 만큼 실제로 온다.
     for field in ("duration_weeks", "hours_per_week", "team_size"):
-        digits = "".join(ch for ch in str(answers.get(field, "")) if ch.isdigit())
-        if digits:
-            data[field] = int(digits)
+        if m := re.search(r"\d+", str(answers.get(field, ""))):
+            data[field] = int(m.group())
 
-    if answers.get("level") in ("beginner", "intermediate", "advanced"):
-        data["level"] = answers["level"]
+    if _ALONE.search(str(answers.get("team_size", ""))):
+        data["team_size"] = 1
+
+    level = str(answers.get("level", "")).strip()
+    if level in ("beginner", "intermediate", "advanced"):
+        data["level"] = level
+    elif level:
+        for pattern, value in _LEVEL_PATTERNS:
+            if pattern.search(level):
+                data["level"] = value
+                break
     if answers.get("stack"):
         data["stack"] = [s.strip() for s in str(answers["stack"]).split(",") if s.strip()]
 

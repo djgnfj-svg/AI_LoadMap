@@ -13,6 +13,8 @@ interface Words {
   /** 목표 한 줄을 받을 때 묻는 말 */
   ask: string;
   askPlaceholder: string;
+  /** 청사진 질문의 빈 칸에 미리 적힌 예시. 한 줄짜리 목표와 달리 **자세히** 적는 자리다 */
+  blueprintPlaceholder: string;
   /** 오른쪽 그림의 이름 */
   map: string;
   /** 노드 하나를 부르는 말 */
@@ -27,6 +29,9 @@ const WORDS: Record<Domain, Words> = {
     label: "게임 제작",
     ask: "어떤 게임을 만드시나요?",
     askPlaceholder: "예: 친구 4명이 한 방에서 30분짜리 미션을 도는 코옵 게임",
+    blueprintPlaceholder:
+      "예: 친구 4명이 방에 들어와 무기를 고르고, 30분 동안 몰려오는 적을 막는다. " +
+      "보스를 잡으면 이기고, 넷이 다 쓰러지면 진다. 스테이지 3개, 무기 6종, 보스 1마리.",
     map: "게임 구조도",
     node: "시스템",
     stack: "엔진 · 도구 (쉼표로 구분)",
@@ -36,6 +41,9 @@ const WORDS: Record<Domain, Words> = {
     label: "소프트웨어",
     ask: "무엇을 하는 프로그램인가요?",
     askPlaceholder: "예: 회의 녹음을 넣으면 회의록을 뽑아 주는 데스크톱 앱",
+    blueprintPlaceholder:
+      "예: 녹음 파일을 끌어다 놓으면 화자별로 나뉜 회의록이 나오고, " +
+      "요약과 할 일을 뽑아 마크다운으로 내보낸다. 화면 3개, 오프라인 동작.",
     map: "아키텍처",
     node: "컴포넌트",
     stack: "스택 (쉼표로 구분)",
@@ -45,6 +53,9 @@ const WORDS: Record<Domain, Words> = {
     label: "웹 제작",
     ask: "어떤 서비스를 만드시나요?",
     askPlaceholder: "예: 동네 사람끼리 공구를 빌려 쓰는 사이트",
+    blueprintPlaceholder:
+      "예: 로그인한 사람이 가진 공구를 올리고, 지도에서 근처 것을 찾아 빌린다. " +
+      "빌린 뒤 후기를 남긴다. 화면 5개, 결제는 없다.",
     map: "서비스 구조도",
     node: "구성 요소",
     stack: "스택 (쉼표로 구분)",

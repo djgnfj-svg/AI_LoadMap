@@ -244,7 +244,10 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
           <textarea
             key={current.field}
             id={`q-${current.field}`}
-            rows={current.field === "blueprint" ? 6 : 4}
+            rows={current.field === "blueprint" ? 7 : 4}
+            placeholder={
+              current.field === "blueprint" ? words(domain).blueprintPlaceholder : undefined
+            }
             value={answers[current.field] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [current.field]: e.target.value })}
             disabled={running}

@@ -259,13 +259,14 @@ async def test_새로고침해도_인터뷰가_이어진다(client):
     assert len(body["tickets"]) == 4
 
 
-async def test_추측한_값은_인터뷰에서_같이_묻는다(client):
-    client.app.state.runner = PlanRunner(FakePlanner(missing=["hours_per_week"]))
+async def test_자기_사정은_추측이_있어도_묻는다(client):
+    client.app.state.runner = PlanRunner(FakePlanner(missing=[]))
     project_id = await _create(client)
 
     body = (await client.get(f"/projects/{project_id}")).json()
     fields = [q["field"] for q in body["generation"]["questions"]]
-    assert fields[-1] == "hours_per_week"
+    assert fields[0] == "blueprint"
+    assert {"team_size", "level", "deadline", "hours_per_week"} <= set(fields)
 
     await _answer_interview(client, project_id, hours_per_week="주 15시간")
     body = (await client.get(f"/projects/{project_id}")).json()
