@@ -122,12 +122,13 @@ async def test_처음에는_청사진부터_묻고_멈춘다():
     assert result["awaiting_clarify"] is True
     fields = [q.field for q in result["clarify_questions"]]
     assert fields[0] == "blueprint"
-    # 1번이 청사진이고, 나머지는 전부 자기 사정을 짚어 보게 하는 질문이다.
+    # 앞의 셋이 일 자체를 쪼개고, 뒤의 넷이 자기 사정이다.
     assert fields == [
         "blueprint",
+        "parts",
+        "starting_point",
         "team_size",
         "level",
-        "starting_point",
         "deadline",
         "hours_per_week",
     ]
@@ -190,6 +191,32 @@ async def test_답변_원문이_decompose_프롬프트에_들어간다():
     assert not result.get("awaiting_clarify")
     assert len(seen) == 1
     assert "친구 4명이 30분 세션을 끊김 없이 도는 전용 서버 코옵 게임" in seen[0]
+
+
+async def test_들어가는_것을_적으면_architect_가_그대로_본다():
+    """2번(parts)의 답이 구조도 노드가 된다.
+
+    decompose 만 문답을 보고 architect 는 못 보면, 사용자가 부른 이름이 그림에서
+    사라진다. 자기가 적은 것이 그림에 없으면 그 그림은 남의 것이다.
+    """
+    seen: list[str] = []
+
+    class Recording(FakePlanner):
+        async def structured(self, *, system, prompt, output_model):
+            if output_model.__name__ == "ArchitectResult":
+                seen.append(prompt)
+            return await super().structured(system=system, prompt=prompt, output_model=output_model)
+
+    planner = Recording()
+    first = await step(planner)
+    answers = {q.field: "" for q in first["clarify_questions"]}
+    answers["blueprint"] = "붙이면 도는 것"
+    answers["parts"] = "넷코드, 인벤토리, 보스 스테이지, 사운드"
+    answered = await step(planner, interview=first["interview"], clarify_answers=answers)
+    await confirm(planner, answered)
+
+    assert len(seen) == 1
+    assert "넷코드, 인벤토리, 보스 스테이지, 사운드" in seen[0]
 
 
 async def test_답에서_읽은_기간은_제약이_된다():

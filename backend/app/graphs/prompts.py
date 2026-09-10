@@ -170,7 +170,7 @@ ARCHITECT = """{architect_hint}
 
 목표: {goal_text}
 {stack_word}: {stack}
-{blueprint}
+{blueprint}{interview}
 주와 태스크:
 {plan}
 
@@ -185,13 +185,26 @@ ARCHITECT = """{architect_hint}
   label 에 무엇이 오가는지 짧게 적는다.
 - 이 로드맵의 티켓으로 만들어지지 않는 {node_word}는 넣지 마라.
   붙을 티켓이 없는 노드는 검증에서 걸린다.
+- ⚠ **사용자가 「무엇무엇이 들어가나요」에 적은 것은 전부 노드로 만든다.**
+  그 사람이 부른 이름을 label 로 쓴다. 낱말을 갈아 끼우지 마라 —
+  자기가 적은 것이 그림에 없으면 그 그림은 남의 것이다.
 """
 
 
 def architect_prompt(
-    goal_text: str, c: Constraints, plan: str, blueprint: Blueprint, domain: str | None
+    goal_text: str,
+    c: Constraints,
+    plan: str,
+    blueprint: Blueprint,
+    domain: str | None,
+    interview: list[InterviewTurn] | None = None,
 ) -> str:
-    """도메인 프리셋을 끼운 아키텍처 프롬프트. 낱말만 갈리고 규칙은 같다."""
+    """도메인 프리셋을 끼운 아키텍처 프롬프트. 낱말만 갈리고 규칙은 같다.
+
+    문답 전문을 함께 넣는다. 인터뷰 2번(parts)이 「무엇무엇이 들어가나요」라서,
+    그 답이 곧 노드 목록이다. decompose 만 문답을 보고 architect 는 못 보던 탓에
+    사용자가 부른 이름이 구조도에서 사라지던 자리다.
+    """
     p = domains.preset(domain)
     return ARCHITECT.format(
         architect_hint=p.architect_hint,
@@ -199,6 +212,7 @@ def architect_prompt(
         stack_word=p.stack_word,
         stack=", ".join(c.stack) or "미정",
         blueprint=format_blueprint(blueprint),
+        interview=format_interview(interview or []),
         plan=plan,
         node_key_examples=p.node_key_examples,
         node_word=p.node_word,

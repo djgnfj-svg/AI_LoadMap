@@ -15,6 +15,8 @@ interface Words {
   askPlaceholder: string;
   /** 청사진 질문의 빈 칸에 미리 적힌 예시. 한 줄짜리 목표와 달리 **자세히** 적는 자리다 */
   blueprintPlaceholder: string;
+  /** 「무엇무엇이 들어가나요」의 예시. 여기 적은 것이 그대로 구조도 노드가 된다 */
+  partsPlaceholder: string;
   /** 오른쪽 그림의 이름 */
   map: string;
   /** 노드 하나를 부르는 말 */
@@ -32,6 +34,7 @@ const WORDS: Record<Domain, Words> = {
     blueprintPlaceholder:
       "예: 친구 4명이 방에 들어와 무기를 고르고, 30분 동안 몰려오는 적을 막는다. " +
       "보스를 잡으면 이기고, 넷이 다 쓰러지면 진다. 스테이지 3개, 무기 6종, 보스 1마리.",
+    partsPlaceholder: "예: 넷코드, 전투, 인벤토리, 보스 스테이지, 사운드, 스팀 빌드",
     map: "게임 구조도",
     node: "시스템",
     stack: "엔진 · 도구 (쉼표로 구분)",
@@ -44,6 +47,7 @@ const WORDS: Record<Domain, Words> = {
     blueprintPlaceholder:
       "예: 녹음 파일을 끌어다 놓으면 화자별로 나뉜 회의록이 나오고, " +
       "요약과 할 일을 뽑아 마크다운으로 내보낸다. 화면 3개, 오프라인 동작.",
+    partsPlaceholder: "예: 녹음 불러오기, 화자 분리, 요약, 내보내기, 설정 화면",
     map: "아키텍처",
     node: "컴포넌트",
     stack: "스택 (쉼표로 구분)",
@@ -56,6 +60,7 @@ const WORDS: Record<Domain, Words> = {
     blueprintPlaceholder:
       "예: 로그인한 사람이 가진 공구를 올리고, 지도에서 근처 것을 찾아 빌린다. " +
       "빌린 뒤 후기를 남긴다. 화면 5개, 결제는 없다.",
+    partsPlaceholder: "예: 로그인, 공구 등록, 지도 검색, 예약, 후기",
     map: "서비스 구조도",
     node: "구성 요소",
     stack: "스택 (쉼표로 구분)",

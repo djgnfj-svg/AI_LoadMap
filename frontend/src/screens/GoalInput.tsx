@@ -30,6 +30,13 @@ interface Props {
   resumeProjectId?: string;
 }
 
+/** 답을 길게 적어야 하는 칸에만 예시를 미리 적어 둔다. */
+function hint(domain: string, field: string): string | undefined {
+  if (field === "blueprint") return words(domain).blueprintPlaceholder;
+  if (field === "parts") return words(domain).partsPlaceholder;
+  return undefined;
+}
+
 export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const [goal, setGoal] = useState("");
 
@@ -165,6 +172,9 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
 
   // 한 번에 하나씩 묻는다. 도메인은 게임으로 고정이라 묻지 않고, 곧장 목표를 받는다.
   // 질문 문구는 게임 프리셋이 낸다(backend/app/graphs/domains.py 의 GAME.questions).
+  //
+  // 예시가 있는 두 칸만 예시를 미리 적어 둔다. 나머지는 한 줄이면 끝나는 질문이라
+  // 빈 칸이 낫다 — 예시가 답을 대신 정해 버린다.
 
   const interviewing = questions.length > 0;
   const confirming = criteria !== null;
@@ -245,9 +255,7 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
             key={current.field}
             id={`q-${current.field}`}
             rows={current.field === "blueprint" ? 7 : 4}
-            placeholder={
-              current.field === "blueprint" ? words(domain).blueprintPlaceholder : undefined
-            }
+            placeholder={hint(domain, current.field)}
             value={answers[current.field] ?? ""}
             onChange={(e) => setAnswers({ ...answers, [current.field]: e.target.value })}
             disabled={running}

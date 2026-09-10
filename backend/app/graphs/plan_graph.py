@@ -256,6 +256,7 @@ def build_plan_graph(planner: Planner, max_retries: int | None = None):
                 plan_text,
                 draft.blueprint,
                 state.get("domain"),
+                state.get("interview") or [],
             ),
             output_model=ArchitectResult,
         )
