@@ -217,21 +217,22 @@ async def test_막힘은_상태가_아니라_사유_한_줄이다(conn):
 
 
 def test_도메인마다_다이어그램_줄_순서가_다르다():
-    """§1.5 — 일반 도메인은 결과물이 맨 위, 환경이 맨 아래다."""
+    """§1.5 — 웹은 브라우저 쪽이 맨 위, 배포·운영이 맨 아래다."""
     draft = PlanDraft(
-        domain="general",
+        domain="web",
         nodes=[
-            DraftNode(node_key="score", label="점수", node_type="deliverable", layer="output"),
-            DraftNode(node_key="drill", label="문제풀이", node_type="skill", layer="practice"),
+            DraftNode(node_key="landing", label="랜딩", node_type="page", layer="frontend"),
+            DraftNode(node_key="deploy", label="배포", node_type="external", layer="infra"),
         ],
     )
     positions = layout_positions(draft)
-    assert positions["score"]["y"] < positions["drill"]["y"]
+    assert positions["landing"]["y"] < positions["deploy"]["y"]
 
 
 def test_모르는_레이어는_맨_아랫줄로_떨어진다():
+    """그 도메인의 줄 목록에 없는 레이어 — 게임 레이어가 소프트웨어 그림에 섞인 경우."""
     draft = PlanDraft(
         domain="software",
-        nodes=[DraftNode(node_key="x", label="X", node_type="service", layer="output")],
+        nodes=[DraftNode(node_key="x", label="X", node_type="service", layer="content")],
     )
     assert layout_positions(draft)["x"]["y"] > 0

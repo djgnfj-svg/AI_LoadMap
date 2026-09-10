@@ -17,6 +17,15 @@ async def step(planner: FakePlanner, max_retries: int = 3, **state) -> dict:
     return await graph.ainvoke({**BASE, **state})
 
 
+def skip_all(questions: list) -> dict[str, str]:
+    """청사진만 답하고 나머지는 비운다.
+
+    청사진은 건너뛸 수 없다(interview.REQUIRED_FIELDS) — 비워 보내면 답으로 치지
+    않고 다시 묻기 때문에, 「전부 건너뛴다」는 실제로 이 모양이다.
+    """
+    return {q.field: ("붙이면 도는 것" if q.field == "blueprint" else "") for q in questions}
+
+
 async def confirm(planner: FakePlanner, result: dict, max_retries: int = 3, **state) -> dict:
     """사용자가 청사진 초안을 그대로 확정한 뒤 이어서 돈다."""
     return await step(
@@ -155,7 +164,11 @@ async def test_답에서_읽은_기간은_제약이_된다():
     answered = await step(
         planner,
         interview=first["interview"],
-        clarify_answers={"deadline": "3개월 안에", "hours_per_week": "주 20시간이요"},
+        clarify_answers={
+            "blueprint": "붙이면 도는 것",
+            "deadline": "3개월 안에",
+            "hours_per_week": "주 20시간이요",
+        },
     )
     result = await confirm(planner, answered)
 
@@ -196,7 +209,7 @@ async def test_전부_건너뛰어도_계획은_나온다():
     answered = await step(
         planner,
         interview=first["interview"],
-        clarify_answers={q.field: "" for q in first["clarify_questions"]},
+        clarify_answers=skip_all(first["clarify_questions"]),
     )
     result = await confirm(planner, answered)
 
@@ -280,20 +293,25 @@ async def test_인터뷰_답에서_완성_기준을_세운다():
     assert [c.key for c in result["draft"].blueprint.criteria] == ["sc1", "sc2"]
 
 
-async def test_전부_건너뛰면_기준을_지어내지_않는다():
-    """없는 것도 사실이다. AI 가 완성 조건을 대신 정하지 않는다."""
+async def test_청사진만_답해도_계획은_나온다():
+    """나머지는 건너뛸 수 있다. 기준의 초안은 그 한 답에서 나온다.
+
+    (「전부 건너뛰면 기준을 지어내지 않는다」였던 자리다. 청사진이 필수가 되면서
+     답이 하나도 없는 상태 자체가 화면에서 만들어지지 않는다.)
+    """
     planner = FakePlanner()
     first = await step(planner)
     answered = await step(
         planner,
         interview=first["interview"],
-        clarify_answers={q.field: "" for q in first["clarify_questions"]},
+        clarify_answers=skip_all(first["clarify_questions"]),
     )
     result = await confirm(planner, answered)
 
-    assert "BlueprintResult" not in planner.calls
-    assert result["draft"].blueprint.criteria == []
-    assert result["critic"].ok  # 기준이 없으면 커버리지도 따지지 않는다
+    assert result["critic"].ok
+    answers = {t.field: t.answer for t in result["interview"]}
+    assert answers["blueprint"] == "붙이면 도는 것"
+    assert answers["done_when"] == ""  # 나머지는 건너뛴 그대로다
 
 
 async def test_기준을_안_맡은_계획은_다시_쪼갠다():
@@ -341,17 +359,18 @@ async def test_소프트웨어가_아닌_목표는_낱말이_바뀐다():
                 seen.append(prompt)
             return await super().structured(system=system, prompt=prompt, output_model=output_model)
 
-    planner = Recording(domain="general")
-    result = await run(planner, goal_text="3개월 안에 단편 다큐 한 편 만들기")
+    planner = Recording(domain="web")
+    result = await run(planner, goal_text="3개월 안에 공구 대여 사이트 열기")
 
-    assert result["draft"].domain == "general"
-    assert "구성요소" in seen[0]
-    assert "deliverable" in seen[0] and "practice" in seen[0]
-    assert "frontend" not in seen[0]
+    assert result["draft"].domain == "web"
+    assert "구성 요소" in seen[0]
+    assert "page" in seen[0] and "frontend" in seen[0]
+    # 게임 낱말이 섞이면 안 된다
+    assert "stage" not in seen[0]
 
 
 async def test_사용자가_확정한_도메인이_추정을_이긴다():
-    planner = FakePlanner(domain="general")
+    planner = FakePlanner(domain="game")
     result = await run(planner, domain="software")
 
     assert result["draft"].domain == "software"
@@ -374,3 +393,22 @@ async def test_게임_목표는_게임_낱말로_그린다():
     assert "시스템" in seen[0]
     assert "stage" in seen[0] and "netcode" in seen[0]
     assert "frontend" not in seen[0]
+
+
+async def test_청사진을_비우면_다시_묻는다():
+    """§3.3 — 건너뛸 수 있는 질문과 없는 질문을 가른다.
+
+    청사진이 없으면 계획이 무엇을 향하는지 정할 수 없고, 그 뒤의 완성 기준과
+    주·티켓이 전부 남의 목표가 된다. 그래서 이것만은 빈 답을 답으로 치지 않는다.
+    """
+    planner = FakePlanner()
+    first = await step(planner)
+    again = await step(
+        planner,
+        interview=first["interview"],
+        clarify_answers={q.field: "" for q in first["clarify_questions"]},
+    )
+
+    assert again["awaiting_clarify"]
+    assert [q.field for q in again["clarify_questions"]] == ["blueprint"]
+    assert "blueprint" not in again  # 청사진 초안까지 가지 않았다

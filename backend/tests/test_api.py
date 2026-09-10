@@ -1,5 +1,6 @@
 """API 통합 (SPEC §3.5). 실제 DB 에 붙어 생성 -> 조회 -> 티켓 상태 변경까지 돈다."""
 
+from app.graphs import domains
 import uuid
 
 import httpx
@@ -204,7 +205,11 @@ async def test_처음에는_청사진을_묻는다(client):
     body = (await client.get(f"/projects/{project_id}")).json()
     assert body["generation"]["status"] == "awaiting_clarify"
     assert body["generation"]["questions"][0]["field"] == "blueprint"
-    assert "청사진" in body["generation"]["questions"][0]["question"]
+    # 첫 질문은 도메인이 쥔다 — 게임과 웹에 같은 말로 묻지 않는다.
+    assert (
+        body["generation"]["questions"][0]["question"]
+        == domains.preset("software").questions[0][1]
+    )
     assert body["tickets"] == []  # 답을 받기 전에는 아무것도 저장하지 않는다
 
 

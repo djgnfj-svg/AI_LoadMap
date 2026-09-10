@@ -15,6 +15,7 @@ import math
 import re
 from datetime import date
 
+from app.graphs import domains
 from app.models.schemas import ClarifyQuestion, Constraints, InterviewTurn
 
 # 한 라운드에 묻는 질문 수 상한 (SPEC §3.3)
@@ -23,40 +24,31 @@ MAX_QUESTIONS_PER_ROUND = 5
 # 더 늘리면 계획을 만들기도 전에 사람이 지친다.
 MAX_ROUNDS = 2
 
-# 1라운드 고정 질문. 순서가 중요하다 — 청사진이 먼저다.
-# 「목표가 뭐예요」가 아니라 「끝났을 때 무엇이 있나요」로 묻는다. 앞의 질문에는
-# 하고 싶은 것을 적고, 뒤의 질문에는 만들 것을 적기 때문이다.
-FIXED_QUESTIONS: list[tuple[str, str]] = [
-    (
-        "blueprint",
-        "당신의 목표의 정확한 청사진은 무엇인가요? "
-        "다 만들어졌을 때 화면에 무엇이 있고, 그것으로 무엇을 할 수 있는지 적어주세요.",
-    ),
-    (
-        "done_when",
-        "무엇이 되면 「끝났다」고 할 수 있나요? "
-        "눈으로 확인할 수 있는 것으로 두세 개 적어주세요.",
-    ),
-    (
-        "starting_point",
-        "지금 어디까지 돼 있나요? 이미 있는 것 · 해본 것 · 자신 없는 것을 적어주세요.",
-    ),
-    (
-        "deadline",
-        "언제까지 이루고 싶나요? 날짜나 기간으로 적어주세요.",
-    ),
-]
+# 1라운드 질문은 **도메인이 쥔다** (graphs/domains.py 의 preset.questions).
+# 무엇을 만드는지는 첫 화면에서 이미 골랐으므로, 두 번째 질문부터는 그것에 맞춰
+# 갈라져야 한다. 게임을 만드는 사람에게 「화면에 무엇이 있나요」라고 묻지 않는다.
+#
+# 순서는 도메인이 달라도 같다 — 청사진이 먼저다. 「목표가 뭐예요」가 아니라
+# 「끝났을 때 무엇이 있나요」로 묻는다. 앞의 질문에는 하고 싶은 것을 적고,
+# 뒤의 질문에는 만들 것을 적기 때문이다.
+
+# 건너뛸 수 없는 질문. 이 답이 없으면 계획이 **무엇을 향하는지** 정할 수 없고,
+# 그 뒤의 완성 기준·주·티켓이 전부 남의 목표가 된다. 비워 보내면 다시 묻는다.
+REQUIRED_FIELDS = frozenset({"blueprint"})
 
 # intake 가 추측으로 채운 것 중, 답이 없으면 계획 자체가 어긋나는 필드.
 # 나머지 추측 필드(level, stack, team_size)는 2라운드에서 LLM 이 필요하면 묻는다.
 _CRITICAL_FIELDS: dict[str, str] = {
-    "hours_per_week": "여기에 주당 몇 시간 정도 쓸 수 있나요? (지금은 {value}시간으로 잡아뒀어요)",
+    "hours_per_week": "한 주에 몇 시간 쓸 수 있나요? (지금 {value}시간)",
 }
 
 
-def first_round(missing: list[str], constraints: Constraints) -> list[ClarifyQuestion]:
-    """1라운드 질문. 고정 질문 + 답이 없으면 계획이 어긋나는 추측 필드."""
-    questions = [ClarifyQuestion(field=f, question=q) for f, q in FIXED_QUESTIONS]
+def first_round(
+    missing: list[str], constraints: Constraints, domain: str | None = None
+) -> list[ClarifyQuestion]:
+    """1라운드 질문. 도메인 질문 + 답이 없으면 계획이 어긋나는 추측 필드."""
+    preset = domains.preset(domain)
+    questions = [ClarifyQuestion(field=f, question=q) for f, q in preset.questions]
     values = constraints.model_dump()
     for field, template in _CRITICAL_FIELDS.items():
         if field in missing:
@@ -81,6 +73,8 @@ def current_round(turns: list[InterviewTurn]) -> int:
 def record_answers(turns: list[InterviewTurn], answers: dict[str, str]) -> list[InterviewTurn]:
     """받은 답을 채운다. 빈 답은 「건너뜀」이고, 그것도 답이라 answered 로 남긴다.
 
+    ⚠ 예외는 REQUIRED_FIELDS 다. 청사진을 비워 보내면 답으로 치지 않고 다시 묻는다.
+
     답이 하나라도 온 라운드는 **통째로** 지나간 것으로 본다. 화면은 한 라운드를
     한 번에 제출하고, 비워 보낸 칸은 건너뛰겠다는 뜻이기 때문이다. 그렇게 하지
     않으면 전부 건너뛴 사용자가 같은 질문을 영원히 다시 받는다.
@@ -92,6 +86,9 @@ def record_answers(turns: list[InterviewTurn], answers: dict[str, str]) -> list[
             turn.answer = (answers[turn.field] or "").strip()
         if turn.round in touched:
             turn.answered = True
+        # 청사진만은 「건너뜀」을 답으로 치지 않는다 (REQUIRED_FIELDS).
+        if turn.field in REQUIRED_FIELDS and not turn.answer:
+            turn.answered = False
     return filled
 
 

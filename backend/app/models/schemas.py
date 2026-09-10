@@ -12,24 +12,22 @@ Level = Literal["beginner", "intermediate", "advanced"]
 # 도메인 프리셋 (SPEC §1.5). 낱말만 갈아끼운다 — 구조는 도메인과 무관하다.
 # 값과 뜻은 app/graphs/domains.py 에 있다.
 # 축은 「무엇을 만드는가」다. 만들어지는 것이 없으면 티켓이 노드를 채울 수 없다.
-Domain = Literal["software", "game", "general"]
+Domain = Literal["game", "software", "web"]
 NodeType = Literal[
-    # software
-    "service", "store", "client",
     # game
     "system", "stage", "asset",
-    # 그 밖의 만들기
-    "deliverable", "skill", "resource",
+    # software
+    "service", "store", "client",
+    # web
+    "page", "api",
     # 공통 — 내가 만들지 않는 것
     "external",
 ]
 Layer = Literal[
-    # software
-    "frontend", "backend", "data", "infra",
     # game
     "play", "rule", "content", "build",
-    # 그 밖의 만들기
-    "output", "practice", "input", "support",
+    # software · web
+    "frontend", "backend", "data", "infra",
 ]
 # 태스크와 티켓이 같은 낱말을 쓴다.
 # ⚠ 「막힘」은 여기 없다 — parked 는 접힘(의도적으로 미룸)이지 막힘이 아니다.
@@ -251,6 +249,9 @@ class GoogleLoginRequest(BaseModel):
 
 class ProjectCreateRequest(BaseModel):
     goal_text: str = Field(min_length=5)
+    # 무엇을 만드는지는 **첫 화면에서 사용자가 고른다.** 추론에 맡기면 그 뒤 질문이
+    # 통째로 어긋나고, 되돌릴 방법이 없다.
+    domain: Domain = "software"
     # 사용자가 미리 아는 제약이 있으면 넣는다. 없으면 intake 가 추론하고 clarify 가 묻는다.
     duration_weeks: int | None = None
     hours_per_week: int | None = None

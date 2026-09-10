@@ -58,9 +58,12 @@ async def create(
     """목표 입력 -> 생성 그래프 시작. 진행 상황은 /projects/{id}/stream 에서 본다."""
     async with db.transaction() as conn:
         project_id = await create_project(
-            conn, user_id=str(user["id"]), goal_text=req.goal_text
+            conn, user_id=str(user["id"]), goal_text=req.goal_text, domain=req.domain
         )
-    request.app.state.runner.start(project_id, req.goal_text, _known(req))
+    # 고른 도메인을 그래프에 함께 넘긴다 — intake 의 추측보다 이 값이 이긴다.
+    request.app.state.runner.start(
+        project_id, req.goal_text, _known(req), domain=req.domain
+    )
     return {"project_id": str(project_id), "status": "running"}
 
 

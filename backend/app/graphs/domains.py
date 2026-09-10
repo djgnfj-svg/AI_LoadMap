@@ -4,9 +4,9 @@
 티켓을 끝내면 그림의 한 칸이 차오르는 게 전부이기 때문이다. 점수나 습관에는
 채울 칸이 없다.
 
-  소프트웨어: 아키텍처 / 컴포넌트 / frontend·backend·data·infra
   게임:       게임 구조도 / 시스템 · 콘텐츠 / play·rule·content·build
-  그 밖:      구성요소 지도 / 구성요소 / 결과물·실행·재료·환경
+  소프트웨어: 아키텍처 / 컴포넌트 / frontend·backend·data·infra
+  웹:         서비스 구조도 / 구성 요소 / frontend·backend·data·infra
 
 구조는 도메인과 무관하다 — 주 > 태스크 > 티켓, 티켓이 노드를 채우고, 지연이
 쌓이면 재점검일이 잡힌다. 다른 것은 낱말뿐이라 프롬프트에 끼우는 값 묶음 하나로
@@ -36,6 +36,10 @@ class DomainPreset:
     architect_hint: str
     # 제약 표시 낱말
     stack_word: str
+    # 1라운드 고정 질문 (SPEC §3.3). **field 는 도메인이 달라도 같다** —
+    # apply_answers 가 field 로 제약을 읽고, 화면도 field 로 답을 맞춘다.
+    # 갈리는 것은 묻는 말뿐이다.
+    questions: list[tuple[str, str]]
 
 
 SOFTWARE = DomainPreset(
@@ -60,6 +64,12 @@ SOFTWARE = DomainPreset(
     criteria_examples='"테스트 3개 통과", "빌드 성공", "응답 200"',
     architect_hint="이 프로젝트가 만들 시스템의 컴포넌트와 호출 관계를 그린다.",
     stack_word="스택",
+    questions=[
+        ("blueprint", "켜면 무엇이 보이고, 무엇을 할 수 있나요?"),
+        ("done_when", "무엇이 되면 쓸 수 있나요? 두세 개."),
+        ("starting_point", "지금 어디까지 돼 있나요?"),
+        ("deadline", "언제까지 만드시나요?"),
+    ],
 )
 
 GAME = DomainPreset(
@@ -93,39 +103,48 @@ GAME = DomainPreset(
         "무엇이 있어야 무엇을 플레이할 수 있는지가 화살표다."
     ),
     stack_word="엔진 · 도구",
+    questions=[
+        ("blueprint", "플레이어가 무엇을 하고, 한 판이 어떻게 끝나나요?"),
+        ("done_when", "무엇이 되면 할 만한가요? 두세 개."),
+        ("starting_point", "지금 어디까지 돼 있나요?"),
+        ("deadline", "언제까지 만드시나요?"),
+    ],
 )
 
-GENERAL = DomainPreset(
-    key="general",
-    label="그 밖의 만들기",
-    map_word="구성요소 지도",
-    node_word="구성요소",
+WEB = DomainPreset(
+    key="web",
+    label="웹 제작",
+    map_word="서비스 구조도",
+    node_word="구성 요소",
     node_types=[
-        ("deliverable", "남는 것 (영상, 원고, 제품, 전시물)"),
-        ("skill", "몸에 붙는 것 (기술, 숙련, 자격)"),
-        ("resource", "모으거나 준비하는 것 (자료, 장비, 재료, 자금)"),
-        ("external", "내가 못 정하는 것 (심사, 거래처, 일정)"),
+        ("page", "사람이 보는 화면 (랜딩, 대시보드, 폼)"),
+        ("api", "서버가 하는 일 (엔드포인트, 인증, 배치)"),
+        ("store", "저장하는 것 (DB, 캐시, 파일)"),
+        ("external", "내가 만들지 않는 것 (결제, 메일, 소셜 로그인)"),
     ],
     layers=[
-        ("output", "최종 결과물"),
-        ("practice", "반복해서 하는 실행"),
-        ("input", "배우고 모으는 재료"),
-        ("support", "환경 · 도구 · 사람"),
+        ("frontend", "브라우저에서 도는 것"),
+        ("backend", "서버에서 도는 것"),
+        ("data", "데이터 쪽"),
+        ("infra", "배포 · 도메인 · 운영"),
     ],
-    node_key_examples="'script', 'thumbnail', 'prototype'",
-    ticket_hint=(
-        "티켓 본문은 그 일을 처음 하는 사람이 그대로 따라 할 수 있어야 한다. "
-        "코드 이야기를 넣지 마라."
-    ),
-    criteria_examples='"영상 1편 업로드", "원고 3쪽 작성", "시제품 1개 조립 완료"',
+    node_key_examples="'landing', 'auth', 'billing'",
+    ticket_hint="티켓 본문은 코딩 에이전트에 그대로 붙여넣을 수 있어야 한다.",
+    criteria_examples='"로그인해서 글을 쓰고 남에게 보인다", "배포한 주소로 열린다", "결제가 실제로 찍힌다"',
     architect_hint=(
-        "이 목표가 만들어낼 것들과 그 사이의 흐름을 그린다. "
-        "무엇이 무엇의 재료가 되는지가 화살표다."
+        "이 서비스를 이루는 화면과 서버, 저장소를 그린다. "
+        "사람이 무엇을 눌러 어디로 가는지가 화살표다."
     ),
-    stack_word="쓰는 도구 · 재료",
+    stack_word="스택",
+    questions=[
+        ("blueprint", "누가 들어와서 무엇을 하고 나가나요?"),
+        ("done_when", "무엇이 되면 열어도 되나요? 두세 개."),
+        ("starting_point", "지금 어디까지 돼 있나요?"),
+        ("deadline", "언제까지 여시나요?"),
+    ],
 )
 
-PRESETS: dict[str, DomainPreset] = {p.key: p for p in (SOFTWARE, GAME, GENERAL)}
+PRESETS: dict[str, DomainPreset] = {p.key: p for p in (GAME, SOFTWARE, WEB)}
 
 
 def preset(domain: str | None) -> DomainPreset:

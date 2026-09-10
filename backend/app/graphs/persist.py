@@ -52,6 +52,7 @@ async def create_project(
     title: str = "(생성 중)",
     constraints: Constraints | None = None,
     start_date: date | None = None,
+    domain: str = "software",
 ) -> uuid.UUID:
     """프로젝트 행을 먼저 만든다.
 
@@ -62,8 +63,8 @@ async def create_project(
     """
     return await conn.fetchval(
         """
-        insert into projects (user_id, title, goal_text, constraints, start_date)
-        values ($1, $2, $3, $4, $5)
+        insert into projects (user_id, title, goal_text, constraints, start_date, domain)
+        values ($1, $2, $3, $4, $5, $6)
         returning id
         """,
         uuid.UUID(user_id),
@@ -71,6 +72,7 @@ async def create_project(
         goal_text,
         (constraints.model_dump() if constraints else {}),
         start_date or date.today(),
+        domain,
     )
 
 
