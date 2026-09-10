@@ -129,3 +129,63 @@ D11 완료 기준은 "공개 URL 동작" 한 줄뿐이다.
       `.pyd` 를 막아 백엔드가 아예 안 뜨기 때문에 표준 json 으로 표면만 맞춰 넣었다.
       실제 패키지는 `orjson.blocked/` 로 비켜뒀다.
       **`uv pip install` 로 의존성을 다시 깔면 날아가고 백엔드가 다시 안 뜬다.**
+
+## 6. 랭체인 고도화 · 랭스미스 (2026-09-10 검토)
+
+**남은 날 — 접수 09-18 까지 8일, 과제 제출 09-20 까지 10일.** D11(UI 정리 + 배포,
+09-17)이 진행 중이고 배포 방식은 §4 대로 아직 안 정했다.
+
+### 6.1 LangChain 도입 — 하지 않는다
+
+이 프로젝트는 **LangChain 을 쓴 적이 없다.** 의존성은 `langgraph` 와 `anthropic`
+둘뿐이고, LLM 호출은 `graphs/llm.py` 한 파일에 갇혀 있다
+(`messages.parse` + `output_format=` → 파싱된 Pydantic 모델).
+
+`langchain-anthropic` 으로 바꾸면 그 구조화 출력 경로를 통째로 다시 짜야 한다.
+`with_structured_output` 은 도구 호출 기반이라 실패 양상이 다르고, critic 이
+기대는 스키마 보증이 흔들린다. SPEC §3.1 이 이 스택을 고른 이유가 「구조화 출력
+안정성」이었고, R6 은 「새로 배우는 기술 추가 금지」다. **8일 남은 지금 할 일이 아니다.**
+
+바꿔서 얻는 것도 없다 — 모델 교체 여지는 `Planner` 프로토콜이 이미 주고 있다.
+
+### 6.2 LangSmith — 붙인다 (반나절)
+
+LangChain 없이 붙는다. 두 갈래를 각각 켜야 한다.
+
+1. **그래프 실행**: `LANGSMITH_TRACING=true` · `LANGSMITH_API_KEY` 두 환경변수면
+   LangGraph 노드가 자동으로 추적된다. 코드 변경 0.
+2. **LLM 호출**: 그래프 밖 Anthropic SDK 는 위로 안 잡힌다. `wrap_anthropic` 으로
+   클라이언트를 감싸야 프롬프트·토큰·도구 호출이 보인다.
+
+```python
+# app/graphs/llm.py — AnthropicPlanner.__init__
+from anthropic import AsyncAnthropic
+from langsmith import wrappers
+
+self._client = wrappers.wrap_anthropic(AsyncAnthropic(api_key=key))
+```
+
+- [ ] `langsmith>=0.3` 를 `pyproject.toml` 에 넣는다 (런타임 의존성).
+- [ ] `wrap_anthropic` 감싸기 — `llm.py` 한 줄. 경계 파일 하나만 건드린다.
+- [ ] `.env.example` 에 `LANGSMITH_TRACING` · `LANGSMITH_API_KEY` · `LANGSMITH_PROJECT`.
+      **셋 다 비워두면 아무 일도 안 일어나야 한다** (목업 Planner · 구글 로그인과 같은 결).
+- [ ] 키가 없을 때 죽지 않는지 확인. 테스트는 `FakePlanner` 라 애초에 안 닿지만,
+      import 실패는 전부를 세운다.
+
+**왜 쓸 만한가.** 이 그래프의 존재 이유는 critic 재시도 루프인데, 지금은 몇 번
+돌았고 무엇 때문에 돌려보냈는지가 로그에만 남는다. 추적을 붙이면 그 루프가 **한
+화면에 그림으로 남는다** — 데모 영상(D13)에서 「검증 없이 한 번 호출하는 래퍼가
+아니다」를 말이 아니라 증거로 보인다.
+
+**주의.** 프롬프트 원문과 인터뷰 답변이 외부 서비스로 나간다. 시연용 계정 데이터만
+넣는다. 가격·무료 한도는 붙이는 날 다시 확인할 것.
+
+참고:
+- [Trace Anthropic applications](https://docs.langchain.com/langsmith/trace-anthropic)
+- [Trace LangGraph applications](https://docs.langchain.com/langsmith/trace-with-langgraph)
+- [`wrap_anthropic` 레퍼런스](https://reference.langchain.com/python/langsmith/wrappers/_anthropic/wrap_anthropic)
+
+### 6.3 진짜 「고도화」는 §3-2 다
+
+LangGraph 쪽에 남은 실제 부채는 **checkpointer 부재**(§3-2)다. 프레임워크를 바꾸는
+것보다 이게 크다. 다만 지금 동작하므로 순서는 그대로 — **배포(D11) 다음이다.**
