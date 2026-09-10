@@ -32,9 +32,6 @@ interface Props {
 
 export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const [goal, setGoal] = useState("");
-  const [weeks, setWeeks] = useState("");
-  const [hours, setHours] = useState("");
-  const [stack, setStack] = useState("");
 
   const [projectId, setProjectId] = useState<string | null>(resumeProjectId ?? null);
   const [steps, setSteps] = useState<StepEvent[]>([]);
@@ -47,6 +44,9 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const [repairs, setRepairs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  /** 지금 몇 번째를 묻고 있는가. 첫 화면과 인터뷰 둘 다 하나씩 넘어간다. */
+  const [setupStep, setSetupStep] = useState(0);
+  const [qIndex, setQIndex] = useState(0);
   const closeStream = useRef<(() => void) | null>(null);
 
   const openBlueprint = useCallback(
@@ -86,6 +86,7 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
       onClarify: (qs) => {
         setQuestions(qs);
         setAnswers({});
+        setQIndex(0);
         setRunning(false);
         void loadTranscript(id);
       },
@@ -117,12 +118,8 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
     setSteps([]);
     setQuestions([]);
     try {
-      const res = await api.createProject({
-        goal_text: goal.trim(),
-        duration_weeks: weeks ? Number(weeks) : undefined,
-        hours_per_week: hours ? Number(hours) : undefined,
-        stack: stack ? stack.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
-      });
+      // 기간·가용시간·도구는 여기서 받지 않는다 — 인터뷰가 도메인에 맞는 말로 묻는다.
+      const res = await api.createProject({ goal_text: goal.trim(), domain });
       setProjectId(res.project_id);
       listen(res.project_id);
     } catch (e) {
@@ -166,8 +163,20 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const setCriterion = (i: number, text: string) =>
     setCriteria((prev) => (prev ?? []).map((c, n) => (n === i ? text : c)));
 
+  // 한 번에 하나씩 묻는다. **무엇을 만드는지가 1번이다** — 그 답이 정해져야
+  // 2번부터의 질문이 갈린다(backend/app/graphs/domains.py 의 preset.questions).
+  // 추론에 맡기지 않는 이유는, 틀렸을 때 되돌릴 자리가 없기 때문이다.
+
   const interviewing = questions.length > 0;
   const confirming = criteria !== null;
+  // 서버는 질문을 한 묶음으로 주지만, 화면에는 하나씩만 내민다.
+  const current = questions[Math.min(qIndex, questions.length - 1)];
+  const lastQuestion = qIndex >= questions.length - 1;
+  // 청사진은 건너뛸 수 없다. 비워 보내도 서버가 답으로 치지 않고 다시 묻는다
+  // (backend/app/graphs/interview.py 의 REQUIRED_FIELDS).
+  const answerRequired = current?.field === "blueprint";
+  const answerBlocked =
+    answerRequired && (answers[current.field] ?? "").trim().length < 5;
 
   return (
     <div className="goal-screen">
@@ -175,52 +184,66 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
         ← 내 로드맵
       </button>
 
-      {!projectId && (
+      {!projectId && setupStep === 0 && (
         <>
+          <p className="ask-progress">1 / 2</p>
           <h1>무엇을 만들 건가요?</h1>
-          <p className="lede">
-            한 줄로 적으면 됩니다. 자세한 건 바로 이어서 물어볼게요.
-          </p>
+          <p className="lede">고른 것에 맞춰 다음 질문이 갈립니다.</p>
+
+          <div className="domain-cards">
+            {DOMAINS.map((d) => (
+              <button
+                key={d}
+                className={domain === d ? "on" : ""}
+                onClick={() => {
+                  setDomain(d);
+                  setSetupStep(1);
+                }}
+              >
+                <strong>{words(d).label}</strong>
+                <span>{words(d).pick}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!projectId && setupStep === 1 && (
+        <>
+          <p className="ask-progress">2 / 2</p>
+          <h1>{words(domain).ask}</h1>
+          <p className="lede">한 줄이면 됩니다.</p>
 
           <textarea
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
-            placeholder="예: 3개월 안에 코옵 멀티플레이어 게임 하나 출시"
+            placeholder={words(domain).askPlaceholder}
             disabled={running}
+            autoFocus
           />
-          <div className="field-row">
-            <div className="field">
-              <label htmlFor="weeks">기간(주)</label>
-              <input id="weeks" value={weeks} onChange={(e) => setWeeks(e.target.value)}
-                placeholder="12" inputMode="numeric" disabled={running} />
-            </div>
-            <div className="field">
-              <label htmlFor="hours">주당 가용시간</label>
-              <input id="hours" value={hours} onChange={(e) => setHours(e.target.value)}
-                placeholder="10" inputMode="numeric" disabled={running} />
-            </div>
-            <div className="field">
-              <label htmlFor="stack">도구 · 스택 (쉼표로 구분)</label>
-              <input id="stack" value={stack} onChange={(e) => setStack(e.target.value)}
-                placeholder="unity, c# / 해커스 교재" disabled={running} />
-            </div>
-          </div>
 
           <div className="actions">
-            <button className="primary" onClick={submit} disabled={goal.trim().length < 5 || running}>
+            <button className="ghost" onClick={() => setSetupStep(0)} disabled={running}>
+              ← 이전
+            </button>
+            <button
+              className="primary"
+              onClick={() => void submit()}
+              disabled={goal.trim().length < 5 || running}
+            >
               {running ? "읽는 중…" : "시작하기"}
             </button>
-            <span className="hint">비워두면 목표 문장에서 추론하고, 애매하면 되묻습니다.</span>
           </div>
         </>
       )}
 
       {projectId && interviewing && (
         <>
-          <h1>몇 가지만 물어볼게요</h1>
-          <p className="lede">
-            여기 적은 말이 <b>그대로</b> 계획의 근거가 됩니다. 모르는 건 비워두고 넘어가도 됩니다.
+          <p className="ask-progress">
+            {qIndex + 1} / {questions.length}
           </p>
+          <h1>{current.question}</h1>
+          <p className="lede">적은 말이 <b>그대로</b> 계획의 근거가 됩니다.</p>
         </>
       )}
 
@@ -228,8 +251,7 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
         <>
           <h1>이렇게 되면 끝난 건가요?</h1>
           <p className="lede">
-            답해주신 걸로 <b>초안</b>을 적었습니다. <b>확정은 직접 하셔야 합니다</b> — 고치고,
-            지우고, 더 넣어주세요. 여기 남는 것이 계획의 기준이 됩니다.
+            초안입니다. <b>확정은 직접 합니다</b> — 여기 남는 것이 계획의 기준입니다.
           </p>
         </>
       )}
@@ -248,51 +270,37 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
 
       {interviewing && (
         <div className="interview">
-          {questions.map((q, i) => (
-            <div className="clarify-q" key={q.field}>
-              <label htmlFor={`q-${q.field}`}>
-                <span className="q-no">{i + 1}</span>
-                {q.question}
-              </label>
-              <textarea
-                id={`q-${q.field}`}
-                rows={q.field === "blueprint" ? 5 : 3}
-                value={answers[q.field] ?? ""}
-                onChange={(e) => setAnswers({ ...answers, [q.field]: e.target.value })}
-                disabled={running}
-              />
-            </div>
-          ))}
+          <textarea
+            key={current.field}
+            id={`q-${current.field}`}
+            rows={current.field === "blueprint" ? 6 : 4}
+            value={answers[current.field] ?? ""}
+            onChange={(e) => setAnswers({ ...answers, [current.field]: e.target.value })}
+            disabled={running}
+            autoFocus
+          />
           <div className="actions">
-            <button className="primary" onClick={sendAnswers} disabled={running}>
-              {running ? "읽는 중…" : "이어서 만들기"}
+            {qIndex > 0 && (
+              <button className="ghost" onClick={() => setQIndex(qIndex - 1)} disabled={running}>
+                ← 이전
+              </button>
+            )}
+            <button
+              className="primary"
+              onClick={() => (lastQuestion ? void sendAnswers() : setQIndex(qIndex + 1))}
+              disabled={running || answerBlocked}
+            >
+              {running ? "읽는 중…" : lastQuestion ? "이어서 만들기" : "다음"}
             </button>
-            <span className="hint">비워둔 질문은 건너뜁니다. 다시 묻지 않아요.</span>
+            <span className="hint">
+              {answerRequired ? "건너뛸 수 없습니다." : "비우면 건너뜁니다."}
+            </span>
           </div>
         </div>
       )}
 
       {confirming && (
         <div className="blueprint-edit">
-          <div className="field">
-            <label htmlFor="bp-domain">무엇을 만드는 목표인가요</label>
-            <div className="domain-pick" id="bp-domain">
-              {DOMAINS.map((d) => (
-                <button
-                  key={d}
-                  className={domain === d ? "on" : ""}
-                  onClick={() => setDomain(d)}
-                  disabled={running}
-                >
-                  {words(d).label}
-                </button>
-              ))}
-            </div>
-            <span className="hint">
-              고른 쪽에 맞춰 오른쪽 그림을 {words(domain).map}로 그리고, 티켓 문구도 맞춥니다.
-            </span>
-          </div>
-
           <div className="field">
             <label htmlFor="bp-summary">완성된 모습 (한 문장)</label>
             <input
@@ -336,9 +344,7 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
             <button className="primary" onClick={confirmBlueprint} disabled={running}>
               {running ? "만드는 중…" : "이 기준으로 계획 만들기"}
             </button>
-            <span className="hint">
-              여기 적은 기준을 어느 주도 맡지 않으면 계획이 반려됩니다.
-            </span>
+            <span className="hint">어느 주도 맡지 않은 기준이 있으면 반려됩니다.</span>
           </div>
         </div>
       )}

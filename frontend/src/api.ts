@@ -188,6 +188,8 @@ export interface ProjectSummary {
 
 export interface CreateProjectBody {
   goal_text: string;
+  /** 첫 화면에서 고른 것. 이 값이 intake 의 추측을 이긴다. */
+  domain?: string;
   duration_weeks?: number;
   hours_per_week?: number;
   level?: string;

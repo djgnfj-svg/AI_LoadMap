@@ -109,9 +109,9 @@ export function Login({ onSignedIn }: Props) {
     <div className="login-screen">
       <h1>Roadmap Planner</h1>
       <p className="lede">
-        목표를 넣으면 로드맵과 아키텍처가 함께 그려지고,
+        목표를 넣으면 로드맵이 그려지고,
         <br />
-        진행 기록에 따라 스스로 다시 그려집니다.
+        진행에 따라 다시 그려집니다.
       </p>
 
       {config === null && !error && <div className="login-slot muted">준비 중…</div>}
@@ -125,10 +125,7 @@ export function Login({ onSignedIn }: Props) {
           <button className="primary" onClick={demoLogin} disabled={busy}>
             {busy ? "들어가는 중…" : "데모 계정으로 둘러보기"}
           </button>
-          <p className="hint">
-            서버에 <code>GOOGLE_CLIENT_ID</code> 가 없어서 데모 계정으로 엽니다.
-            구글 로그인을 켜면 이 버튼은 사라집니다.
-          </p>
+          <p className="hint">구글 로그인이 꺼져 있어 데모로 엽니다.</p>
         </div>
       )}
 
