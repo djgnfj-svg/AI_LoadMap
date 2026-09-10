@@ -20,7 +20,7 @@ supabase/migrations/           §4 스키마. 12개 테이블 + 노드 상태 �
                                0004 가 users 를 넣고 프로젝트에 주인을 붙인다
                                0005 가 인터뷰 문답을 프로젝트에 붙인다
                                0006 이 완성 청사진과 주별 covers 를 넣는다
-                               0007 · 0008 이 도메인 프리셋을 넣는다 (소프트웨어 · 게임 · 그 밖)
+                               0007~0009 가 도메인 프리셋을 넣는다 (지금 내미는 것은 게임뿐)
 scripts/setup.sh               로컬 세팅 한 방
 scripts/dev.sh                 백엔드 + 프론트 동시 실행
 frontend/
@@ -35,7 +35,7 @@ backend/
   app/graphs/                  LangGraph 생성 그래프
     critic.py                  검증 (LLM 미개입) — 이 그래프의 존재 이유
     interview.py               1라운드 고정 질문 (LLM 미개입) + 답변 → 제약 반영
-    domains.py                 도메인 프리셋 — 소프트웨어 / 게임 / 그 밖. 낱말만 갈아끼운다
+    domains.py                 도메인 프리셋 — 게임만 내민다. software·web 은 옛 로드맵용
     repair.py                  재시도 소진 시 결정적 복구
     plan_graph.py              intake → interview → blueprint → decompose → architect → link → critic → emit
     replan_graph.py            collect_signals → diagnose → replan_scope → propose → critic → diff
@@ -52,25 +52,25 @@ backend/
   tests/                       critic / repair / 그래프 / 저장 / API
 ```
 
-## 도메인
+## 도메인 — 게임 제작
 
-축은 **무엇을 만드는가**입니다. 티켓을 끝내면 그림의 한 칸이 차오르는 게 이 도구의
-전부라, 만들어지는 것이 있어야 성립합니다.
+**만드는 것은 게임 하나입니다.** 셋(게임 · 소프트웨어 · 웹)을 다 받으면 셋 다
+어설퍼서 좁혔습니다. 첫 화면은 고르라고 하지 않고 곧장 묻습니다 —
+「어떤 게임을 만드시나요?」
 
-구조(주 > 태스크 > 티켓, 티켓이 노드를 채우고 지연이 쌓이면 재점검일)는 그대로 두고
-**낱말만 갈아끼웁니다** — `app/graphs/domains.py`.
-
-| | 소프트웨어 | 게임 제작 | 그 밖의 만들기 |
-|---|---|---|---|
-| 오른쪽 그림 | 아키텍처 · 컴포넌트 | 게임 구조도 · 시스템 | 구성요소 지도 · 구성요소 |
-| 노드 유형 | service · store · client | system · stage · asset | deliverable · skill · resource |
-| 노드 층 | frontend · backend · data · infra | play · rule · content · build | output · practice · input · support |
-| 완료 조건 예시 | "테스트 3개 통과" | "친구 4명이 30분을 끊김 없이 돈다" | "영상 1편 업로드" |
+| | 게임 제작 |
+|---|---|
+| 오른쪽 그림 | 게임 구조도 · 시스템 |
+| 노드 유형 | system · stage · asset (+ external) |
+| 노드 층 | play · rule · content · build |
+| 완료 조건 예시 | "친구 4명이 30분을 끊김 없이 돈다" |
 
 게임은 소프트웨어지만 낱말이 다릅니다 — 막히는 자리가 「백엔드」가 아니라
 넷코드 · 보스 스테이지 · 사운드입니다. 그 낱말로 불러야 알람이 진단으로 읽힙니다.
 
-목표 문장으로 AI 가 추정하고, **완성 기준 확정 화면에서 사용자가 바꿉니다.**
+`software` · `web` 프리셋은 `app/graphs/domains.py` 와 DB 제약에 남아 있습니다.
+안 내밀 뿐 지우지 않았습니다 — 그 전에 만든 로드맵(`seed_self.py` 포함)이 제 낱말로
+계속 읽혀야 하기 때문입니다.
 
 ## 계층
 

@@ -21,7 +21,7 @@ import {
   type StepEvent,
   type SuccessCriterion,
 } from "../api";
-import { DOMAINS, words } from "../domain";
+import { words } from "../domain";
 
 interface Props {
   onCreated: (projectId: string) => void;
@@ -40,12 +40,12 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const [answered, setAnswered] = useState<InterviewTurn[]>([]);
   const [criteria, setCriteria] = useState<string[] | null>(null);
   const [summary, setSummary] = useState("");
-  const [domain, setDomain] = useState("software");
+  // 만드는 것은 게임 하나로 좁혔다 (SPEC §1.5). 고를 것이 없으니 묻지 않는다.
+  const [domain, setDomain] = useState("game");
   const [repairs, setRepairs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  /** 지금 몇 번째를 묻고 있는가. 첫 화면과 인터뷰 둘 다 하나씩 넘어간다. */
-  const [setupStep, setSetupStep] = useState(0);
+  /** 지금 몇 번째 인터뷰 질문을 묻고 있는가. 하나씩 넘어간다. */
   const [qIndex, setQIndex] = useState(0);
   const closeStream = useRef<(() => void) | null>(null);
 
@@ -163,9 +163,8 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
   const setCriterion = (i: number, text: string) =>
     setCriteria((prev) => (prev ?? []).map((c, n) => (n === i ? text : c)));
 
-  // 한 번에 하나씩 묻는다. **무엇을 만드는지가 1번이다** — 그 답이 정해져야
-  // 2번부터의 질문이 갈린다(backend/app/graphs/domains.py 의 preset.questions).
-  // 추론에 맡기지 않는 이유는, 틀렸을 때 되돌릴 자리가 없기 때문이다.
+  // 한 번에 하나씩 묻는다. 도메인은 게임으로 고정이라 묻지 않고, 곧장 목표를 받는다.
+  // 질문 문구는 게임 프리셋이 낸다(backend/app/graphs/domains.py 의 GAME.questions).
 
   const interviewing = questions.length > 0;
   const confirming = criteria !== null;
@@ -184,33 +183,8 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
         ← 내 로드맵
       </button>
 
-      {!projectId && setupStep === 0 && (
+      {!projectId && (
         <>
-          <p className="ask-progress">1 / 2</p>
-          <h1>무엇을 만들 건가요?</h1>
-          <p className="lede">고른 것에 맞춰 다음 질문이 갈립니다.</p>
-
-          <div className="domain-cards">
-            {DOMAINS.map((d) => (
-              <button
-                key={d}
-                className={domain === d ? "on" : ""}
-                onClick={() => {
-                  setDomain(d);
-                  setSetupStep(1);
-                }}
-              >
-                <strong>{words(d).label}</strong>
-                <span>{words(d).pick}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {!projectId && setupStep === 1 && (
-        <>
-          <p className="ask-progress">2 / 2</p>
           <h1>{words(domain).ask}</h1>
           <p className="lede">한 줄이면 됩니다.</p>
 
@@ -223,9 +197,6 @@ export function GoalInput({ onCreated, onBack, resumeProjectId }: Props) {
           />
 
           <div className="actions">
-            <button className="ghost" onClick={() => setSetupStep(0)} disabled={running}>
-              ← 이전
-            </button>
             <button
               className="primary"
               onClick={() => void submit()}

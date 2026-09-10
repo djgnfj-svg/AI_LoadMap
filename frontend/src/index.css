@@ -117,16 +117,6 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 .interview { margin-top: 8px; }
 
 /* 무엇을 만드는지 고르는 첫 화면 — 이 답이 뒤 질문을 가른다 */
-.domain-cards { display: grid; gap: 10px; margin-top: 4px; }
-.domain-cards button {
-  display: block; width: 100%; text-align: left;
-  padding: 16px 18px; border-radius: var(--radius);
-  background: var(--panel); border: 1px solid var(--border);
-}
-.domain-cards button:hover:not(:disabled) { border-color: #1f6feb; background: var(--panel-2); }
-.domain-cards button.on { border-color: #1f6feb; }
-.domain-cards strong { display: block; font-size: 15px; margin-bottom: 3px; }
-.domain-cards span { font-size: 12.5px; color: var(--muted); }
 
 /* 완성 기준 확정 — AI 는 초안만 쓰고 확정은 사용자가 한다 */
 .blueprint-edit { margin-top: 8px; }
