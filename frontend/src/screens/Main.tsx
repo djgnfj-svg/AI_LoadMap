@@ -9,6 +9,7 @@ import { alertsApi, api, type Alert, type ProjectView, type Ticket } from "../ap
 import { AlertsPanel } from "../components/AlertsPanel";
 import { ArchDiagram } from "../components/ArchDiagram";
 import { BlueprintPanel } from "../components/BlueprintPanel";
+import { AddTicket } from "../components/AddTicket";
 import { TicketBoard } from "../components/TicketBoard";
 import { TicketDetail } from "../components/TicketDetail";
 import { TodayFocus } from "../components/TodayFocus";
@@ -196,6 +197,8 @@ export function Main({ projectId, onBack, onOpenReview, onResumeInterview }: Pro
             onToggleDone={toggleDone}
           />
         )}
+
+        <AddTicket projectId={view.project.id} onApplied={() => void refresh()} />
       </div>
 
       <div className="pane right">

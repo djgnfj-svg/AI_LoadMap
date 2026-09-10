@@ -32,11 +32,29 @@ from app.models.schemas import (
     DraftWeeklyGoal,
     IntakeResult,
     LinkResult,
+    PlacementResult,
     ProposedChange,
     ReplanProposal,
     SplitPart,
     SuccessCriterion,
 )
+
+
+def _parts_from(prompt: str) -> list[str]:
+    """인터뷰 2번(「무엇무엇이 들어가나요」)의 답을 항목으로 끊는다.
+
+    문답 전문은 `prompts.format_interview` 가 Q./A. 두 줄로 넣는다.
+    """
+    m = re.search(r"^Q\. .*들어가나요.*$\n^A\. (.+)$", prompt, flags=re.MULTILINE)
+    if not m:
+        return []
+    items = [x.strip(" .·-") for x in re.split(r"[,·/\n]| 그리고 ", m.group(1))]
+    seen: list[str] = []
+    for item in items:
+        if 1 < len(item) <= 20 and item not in seen:
+            seen.append(item)
+    return seen[:12]
+
 
 _PHASES = [
     ("기반 세우기", "돌아가는 최소 골격을 만든다"),
@@ -246,10 +264,33 @@ class MockPlanner:
         return DecomposeResult(weekly_goals=goals, tasks=tasks, tickets=tickets)
 
     def _ArchitectResult(self, prompt: str) -> ArchitectResult:  # noqa: N802
+        """구조도. **사용자가 「무엇무엇이 들어가나요」에 적은 것을 그대로 노드로 쓴다.**
+
+        목업이라 낱말을 지어낼 수 없다. 지어내면 게임을 만든다고 해도 노드가
+        「API 서버 · 데이터베이스」로 나온다 — 키 없이 도는 데모가 그렇게 죽었다.
+        답이 없을 때만 미리 적어 둔 낱말로 떨어진다.
+        """
         # 프롬프트가 허용한 유형·레이어만 쓴다 (도메인 프리셋, SPEC §1.5).
         types = re.findall(r"^  \* (\w+): ", prompt, flags=re.MULTILINE)
         node_types = types[:4] or ["service", "store", "client", "external"]
         layers = types[4:8] or ["frontend", "backend", "data", "infra"]
+
+        named = _parts_from(prompt)
+        nodes = (
+            [(f"n{i}", label) for i, label in enumerate(named, start=1)]
+            if len(named) >= 4
+            else [(k, lab) for k, lab, _nt, _lay in _NODES]
+        )
+        keys = [k for k, _ in nodes]
+        edges = (
+            [DraftEdge(from_key=f, to_key=t, label=lab) for f, t, lab in _EDGES]
+            if keys == [n[0] for n in _NODES]
+            # 사용자가 적은 순서를 선후로 본다. 목업이 의존을 읽어낼 수는 없다.
+            else [
+                DraftEdge(from_key=a, to_key=b, label="선행")
+                for a, b in zip(keys, keys[1:], strict=False)
+            ]
+        )
         return ArchitectResult(
             nodes=[
                 DraftNode(
@@ -258,9 +299,9 @@ class MockPlanner:
                     node_type=node_types[i % len(node_types)],
                     layer=layers[i % len(layers)],
                 )
-                for i, (k, lab, _nt, _lay) in enumerate(_NODES)
+                for i, (k, lab) in enumerate(nodes)
             ],
-            edges=[DraftEdge(from_key=f, to_key=t, label=lab) for f, t, lab in _EDGES],
+            edges=edges,
         )
 
     def _LinkResult(self, prompt: str) -> LinkResult:  # noqa: N802
@@ -382,3 +423,56 @@ class MockPlanner:
             )))
 
         return ReplanProposal(changes=changes)
+
+
+    # ── 티켓 투입 그래프 (SPEC §3.7) ──────────────────────────
+    def _PlacementResult(self, prompt: str) -> PlacementResult:  # noqa: N802
+        """새 일 하나를 놓을 자리. 목업이라 내용을 읽을 수 없으니 **숫자로 고른다.**
+
+        가장 한가한 주의 태스크에 넣고, 그 태스크의 아직 안 끝난 티켓 하나를 선행으로
+        잡는다. 「어디에 놓이고 무엇 다음인지」가 키 없이도 화면에 보여야 하기 때문이다.
+        """
+        week: int | None = None
+        current: tuple[int | None, str] = (None, "")
+        load: dict[int, int] = {}
+        # (주차, 태스크 ref, 티켓 ref, 제목, 분, 상태)
+        rows: list[tuple[int | None, str, str, str, int, str]] = []
+        for line in prompt.splitlines():
+            if m := re.match(r"^\[(\d+)주차\]", line):
+                week = int(m.group(1))
+                load.setdefault(week, 0)
+            elif m := re.match(r"^  (K\d+) ", line):
+                current = (week, m.group(1))
+            elif m := re.match(r"^    (T\d+) (.+?) \((\d+)분, (\w+)\)", line):
+                minutes = int(m.group(3))
+                rows.append((current[0], current[1], m.group(1), m.group(2), minutes, m.group(4)))
+                if current[0] is not None:
+                    load[current[0]] = load.get(current[0], 0) + minutes
+
+        all_tasks = re.findall(r"^  (K\d+) ", prompt, flags=re.MULTILINE)
+        if not all_tasks:
+            raise AssertionError("목업이 계획에서 태스크를 못 찾았다.")
+
+        # 가장 한가한 주. 티켓이 아직 없는 주가 있으면 거기가 0 분이라 먼저 걸린다.
+        task_ref = None
+        if load:
+            quietest = min(load, key=lambda w: (load[w], w))
+            task_ref = next((r[1] for r in rows if r[0] == quietest), None)
+        task_ref = task_ref or all_tasks[-1]
+
+        same_task = [r for r in rows if r[1] == task_ref]
+        before = next((r[2] for r in same_task if r[5] == "resolved"), None)
+        after = next((r[2] for r in same_task if r[5] != "resolved"), None)
+
+        title = prompt.split("새로 생긴 일:", 1)[-1].strip().splitlines()[0][:60] or "새 일"
+        nodes = re.findall(r"^- ([a-z0-9_]+) \(", prompt, flags=re.MULTILINE)
+        return PlacementResult(
+            task_ref=task_ref,
+            title=title,
+            body="",
+            est_minutes=60,
+            depends_on_refs=[before] if before else [],
+            blocks_refs=[after] if after else [],
+            node_keys=nodes[:1],
+            reason=f"{title} 은(는) 이 태스크가 하는 일과 같은 갈래다.",
+        )

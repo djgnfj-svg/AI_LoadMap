@@ -14,9 +14,15 @@ from app.models.schemas import (
     BlueprintConfirmRequest,
     ClarifyAnswerRequest,
     InterviewTurn,
+    PlacementDiff,
+    PlacementRequest,
     ProjectCreateRequest,
+    ReplanApplyRequest,
+    ReplanChange,
     SuccessCriterion,
 )
+from app.services.placement_context import load_placement_context
+from app.services.replan_apply import apply_changes
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -325,3 +331,107 @@ def _json(event: dict) -> str:
     import json
 
     return json.dumps({k: v for k, v in event.items() if k != "event"}, ensure_ascii=False)
+
+
+# ─────────────────────────────────────────────────────────────
+# 티켓 투입 (SPEC §3.7) — 만들다 생긴 일을 받아 자리를 잡아 준다
+# ─────────────────────────────────────────────────────────────
+async def _assert_owns(conn, project_id: uuid.UUID, user) -> None:  # noqa: ANN001
+    """남의 프로젝트는 403 이 아니라 404 다 — 403 은 그 id 가 실재함을 알려 준다."""
+    owned = await conn.fetchval(
+        "select 1 from projects where id = $1 and user_id = $2", project_id, user["id"]
+    )
+    if not owned:
+        raise HTTPException(404, "없는 프로젝트다.")
+
+
+@router.post("/{project_id}/tickets", status_code=201)
+async def place_ticket(
+    project_id: uuid.UUID,
+    req: PlacementRequest,
+    request: Request,
+    user=Depends(auth.current_user),
+) -> dict:  # noqa: ANN001
+    """새로 생긴 일 하나를 받아 자리를 정한다. **아직 적용하지 않는다.**
+
+    결과는 승인 대기 상태로 저장된다 — AI 가 계획을 말없이 바꾸지 않는 것이
+    이 제품의 규칙이다 (청사진 확정 · 재설계 diff 와 같은 결).
+    """
+    title = req.title.strip()
+    if len(title) < 2:
+        raise HTTPException(400, "무슨 일인지 한 줄은 적어야 한다.")
+
+    graph = request.app.state.place_graph
+    async with db.transaction() as conn:
+        await _assert_owns(conn, project_id, user)
+        # 계획이 있는지부터 본다. 인터뷰 중인 프로젝트는 제약도 비어 있어서
+        # 컨텍스트를 읽는 것 자체가 터진다.
+        if not await conn.fetchval(
+            "select count(*) from tasks where project_id = $1", project_id
+        ):
+            raise HTTPException(409, "아직 계획이 없다. 로드맵부터 만들자.")
+
+        project = await conn.fetchrow(
+            "select domain from projects where id = $1", project_id
+        )
+        ctx = await load_placement_context(conn, project_id)
+
+        final = await graph.ainvoke(
+            {
+                "context": ctx,
+                "domain": project["domain"],
+                "title": title,
+                "body": req.body,
+                "attempt": 0,
+            }
+        )
+        diff: PlacementDiff = final["diff"]
+        session_id = await conn.fetchval(
+            "insert into replan_sessions (project_id, diff_json) values ($1, $2) "
+            "returning id",
+            project_id,
+            diff.model_dump(mode="json"),
+        )
+
+    return {"session_id": str(session_id), "diff": diff.model_dump(mode="json")}
+
+
+@router.post("/{project_id}/tickets/{session_id}/apply")
+async def apply_placement(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    req: ReplanApplyRequest,
+    user=Depends(auth.current_user),
+) -> dict:  # noqa: ANN001
+    """항목별 승인. 자리를 거절하면 티켓 자체가 안 들어간다."""
+    async with db.transaction() as conn:
+        await _assert_owns(conn, project_id, user)
+        session = await conn.fetchrow(
+            "select * from replan_sessions where id = $1 and project_id = $2 "
+            "and review_day_id is null and applied = false",
+            session_id,
+            project_id,
+        )
+        if session is None:
+            raise HTTPException(404, "적용할 배치 결과가 없다.")
+
+        diff = PlacementDiff(**session["diff_json"])
+        changes: list[ReplanChange] = diff.changes
+        approved = set(req.approved)
+        unknown = approved - {c.id for c in changes}
+        if unknown:
+            raise HTTPException(400, f"모르는 변경 id: {', '.join(sorted(unknown))}")
+
+        result = await apply_changes(
+            conn, project_id=project_id, changes=changes, approved_ids=approved
+        )
+        await conn.execute(
+            "update replan_sessions set applied = true where id = $1", session_id
+        )
+
+    return {
+        "session_id": str(session_id),
+        "approved": sorted(approved),
+        "rejected": sorted({c.id for c in changes} - approved),
+        **result,
+    }

@@ -381,6 +381,29 @@ export const alertsApi = {
     }>(`/projects/${projectId}/detect`, { method: "POST", body: JSON.stringify({}) }),
 };
 
+/** 만들다 생긴 일 하나를 놓은 자리 (SPEC §3.7). 승인 전까지 계획은 그대로다. */
+export interface PlacementDiff {
+  title: string;
+  /** 「2주차 · 넷코드 붙이기 · T3 다음」 */
+  placement: string;
+  reason: string;
+  changes: ReplanChange[];
+  residual_violations: { code: string; message: string }[];
+}
+
+export const placementApi = {
+  place: (projectId: string, title: string) =>
+    request<{ session_id: string; diff: PlacementDiff }>(`/projects/${projectId}/tickets`, {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
+  apply: (projectId: string, sessionId: string, approved: string[]) =>
+    request<{ approved: string[]; rejected: string[]; applied: string[] }>(
+      `/projects/${projectId}/tickets/${sessionId}/apply`,
+      { method: "POST", body: JSON.stringify({ approved }) },
+    ),
+};
+
 export const reviewsApi = {
   get: (reviewDayId: string) => request<ReviewView>(`/reviews/${reviewDayId}`),
   run: (reviewDayId: string) =>

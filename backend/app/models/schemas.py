@@ -368,3 +368,37 @@ class ReplanApplyRequest(BaseModel):
     """항목별 승인. 목록에 없는 항목은 거절로 본다."""
 
     approved: list[str]
+
+
+# ─────────────────────────────────────────────────────────────
+# 티켓 투입 (SPEC §3.7) — 만들다 생긴 일 하나를 계획에 끼워 넣는다
+# ─────────────────────────────────────────────────────────────
+class PlacementRequest(BaseModel):
+    """사용자가 던지는 일 하나. 제목 한 줄이면 된다."""
+
+    title: str
+    body: str = ""
+
+
+class PlacementResult(BaseModel):
+    """LLM 이 고른 자리. 티켓·태스크는 uuid 대신 T번호·K번호로 가리킨다."""
+
+    task_ref: str            # 어느 태스크에 사는가 (K번호)
+    title: str               # 다듬은 제목. 사용자가 준 말을 크게 바꾸지 않는다
+    body: str                # §2.2 형식. 비면 코드가 채운다
+    est_minutes: int
+    depends_on_refs: list[str]  # 이 일보다 **먼저** 끝나야 하는 티켓
+    blocks_refs: list[str]      # 이 일이 끝나야 시작할 수 있는 티켓
+    node_keys: list[str]
+    reason: str              # 왜 여기인가 — 사용자에게 그대로 보인다
+
+
+class PlacementDiff(BaseModel):
+    """승인 대기 중인 배치 한 건. 재설계와 같은 결로 항목별로 승인한다."""
+
+    title: str
+    # 사람이 읽는 자리 한 줄 — "2주차 · 넷코드 붙이기 · T3 다음"
+    placement: str
+    reason: str
+    changes: list[ReplanChange]
+    residual_violations: list[Violation] = []

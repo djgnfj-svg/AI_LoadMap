@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import db
 from app.api import alerts, auth, projects, reviews, tickets
 from app.config import get_settings
+from app.graphs.place_graph import build_place_graph
 from app.graphs.replan_graph import build_replan_graph
 from app.scheduler import build_scheduler
 from app.services.planner_runs import PlanRunner
@@ -42,8 +43,14 @@ async def lifespan(app: FastAPI):
         planner = build_planner()
         app.state.runner = PlanRunner(planner)
         app.state.replan_graph = build_replan_graph(planner)
-    elif not hasattr(app.state, "replan_graph"):
-        app.state.replan_graph = build_replan_graph(build_planner())
+        app.state.place_graph = build_place_graph(planner)
+    else:
+        # 테스트가 runner 만 끼워 넣는 경우가 있다. 없는 그래프만 채운다.
+        planner = app.state.runner.planner
+        if not hasattr(app.state, "replan_graph"):
+            app.state.replan_graph = build_replan_graph(planner)
+        if not hasattr(app.state, "place_graph"):
+            app.state.place_graph = build_place_graph(planner)
 
     scheduler = None
     if settings.scheduler_enabled:

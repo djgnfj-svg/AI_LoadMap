@@ -387,3 +387,100 @@ async def test_도메인은_청사진과_함께_사용자가_확정한다(client
     body = (await client.get(f"/projects/{project_id}")).json()
     assert body["project"]["domain"] == "game"
     assert body["generation"]["status"] == "done"
+
+
+# ─────────────────────────────────────────────────────────────
+# 티켓 투입 (SPEC §3.7)
+# ─────────────────────────────────────────────────────────────
+async def _place(client, project_id: str, title: str) -> dict:
+    """만들다 생긴 일 하나를 던진다. 목업 Planner 가 계획을 읽고 자리를 고른다."""
+    from app.graphs.mock_planner import MockPlanner
+    from app.graphs.place_graph import build_place_graph
+
+    client.app.state.place_graph = build_place_graph(MockPlanner())
+    res = await client.post(f"/projects/{project_id}/tickets", json={"title": title})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+async def test_새로_생긴_일은_자리를_받고_승인을_기다린다(client):
+    """AI 가 계획을 말없이 바꾸지 않는다 — 청사진 확정·재설계 diff 와 같은 결이다."""
+    project_id = await _create_and_wait(client)
+    before = len((await client.get(f"/projects/{project_id}")).json()["tickets"])
+
+    body = await _place(client, project_id, "넷코드 붙이기")
+    diff = body["diff"]
+
+    assert diff["title"] == "넷코드 붙이기"
+    assert diff["placement"]           # 「N주차 · 태스크 · 무엇 다음」
+    assert diff["reason"]              # 왜 여기인지
+    assert diff["changes"][0]["type"] == "add_ticket"
+    # 승인 전에는 계획이 그대로다.
+    after = (await client.get(f"/projects/{project_id}")).json()
+    assert len(after["tickets"]) == before
+
+
+async def test_승인하면_티켓과_선후관계가_함께_들어간다(client):
+    project_id = await _create_and_wait(client)
+    view = (await client.get(f"/projects/{project_id}")).json()
+    before = len(view["tickets"])
+    before_deps = len(view["ticket_dependencies"])
+
+    body = await _place(client, project_id, "넷코드 붙이기")
+    ids = [c["id"] for c in body["diff"]["changes"]]
+    res = await client.post(
+        f"/projects/{project_id}/tickets/{body['session_id']}/apply",
+        json={"approved": ids},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["applied"] == ids
+
+    after = (await client.get(f"/projects/{project_id}")).json()
+    assert len(after["tickets"]) == before + 1
+    assert any(t["title"] == "넷코드 붙이기" for t in after["tickets"])
+    # 자리를 잡아 준다는 건 선후관계가 같이 들어온다는 뜻이다.
+    assert len(after["ticket_dependencies"]) > before_deps
+
+
+async def test_자리를_거절하면_티켓이_안_들어간다(client):
+    """add_ticket 을 거절하면 그것을 가리키던 선후관계도 조용히 건너뛴다."""
+    project_id = await _create_and_wait(client)
+    before = len((await client.get(f"/projects/{project_id}")).json()["tickets"])
+
+    body = await _place(client, project_id, "넷코드 붙이기")
+    res = await client.post(
+        f"/projects/{project_id}/tickets/{body['session_id']}/apply",
+        json={"approved": []},
+    )
+    assert res.status_code == 200, res.text
+
+    after = (await client.get(f"/projects/{project_id}")).json()
+    assert len(after["tickets"]) == before
+
+
+async def test_같은_배치를_두_번_적용할_수_없다(client):
+    project_id = await _create_and_wait(client)
+    body = await _place(client, project_id, "넷코드 붙이기")
+    url = f"/projects/{project_id}/tickets/{body['session_id']}/apply"
+
+    assert (await client.post(url, json={"approved": []})).status_code == 200
+    assert (await client.post(url, json={"approved": []})).status_code == 404
+
+
+async def test_계획이_없으면_받지_않는다(client):
+    """인터뷰 중인 프로젝트에는 넣을 자리가 없다."""
+    project_id = await _create(client)  # 인터뷰 1라운드에서 멈춘 상태
+
+    res = await client.post(f"/projects/{project_id}/tickets", json={"title": "넷코드"})
+    assert res.status_code == 409
+
+
+async def test_남의_프로젝트에는_넣을_수_없다(client):
+    project_id = await _create_and_wait(client)
+    await client.post("/auth/logout")
+    await client.post("/auth/demo")  # 같은 데모 계정이라 이건 여전히 내 것이다
+
+    res = await client.post(
+        f"/projects/{uuid.uuid4()}/tickets", json={"title": "남의 것에 넣기"}
+    )
+    assert res.status_code == 404

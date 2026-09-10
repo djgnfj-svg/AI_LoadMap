@@ -421,3 +421,111 @@ def format_scope_tickets(rows: list[dict]) -> str:
             f"({row['est_minutes']}분, {row['status']}){delay}{deps}{blocked}"
         )
     return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────
+# 티켓 투입 그래프 (SPEC §3.7)
+# ─────────────────────────────────────────────────────────────
+PLACE = """만들다 새로 생긴 일이 하나 있다. **이 일이 계획의 어디에 들어가는지** 정하라.
+
+새로 생긴 일:
+{title}
+{body}
+지금 계획 (K = 태스크, T = 티켓. `<-` 뒤는 먼저 끝나야 하는 티켓이다):
+{plan}
+
+{node_word} 목록:
+{nodes}
+
+제약:
+- 티켓 하나는 {max_min}분 이하. 예외 없다.
+- 주당 {hours_per_week}시간 (= {capacity}분). 그 주에 이미 든 티켓 합계를 넘기지 마라.
+
+정할 것은 넷이다.
+1. **task_ref** — 어느 태스크에 사는가. 위 목록의 K번호 하나.
+   * 하는 일이 가장 가까운 태스크를 고른다. 「지금 하는 주」가 아니라 **내용**으로 고른다.
+   * 그 주가 이미 꽉 찼으면 같은 내용의 뒤 주 태스크를 고른다.
+2. **depends_on_refs** — 이 일보다 **먼저** 끝나야 하는 티켓 (T번호). 없으면 빈 배열.
+   * 정말 먼저 끝나야 하는 것만 넣는다. 「같이 하면 좋은 것」은 선행이 아니다.
+   * 이미 resolved 인 티켓은 넣지 마라 — 이미 끝났다.
+3. **blocks_refs** — 이 일이 끝나야 시작할 수 있는 티켓 (T번호). 없으면 빈 배열.
+   * 이게 이 기능의 값이다. 새 일 때문에 순서가 바뀌는 것을 여기서 잡는다.
+   * 순환하면 안 된다. depends_on_refs 에 넣은 것을 여기에도 넣지 마라.
+4. **node_keys** — 이 일이 채우는 {node_word}. 위 목록의 key 로만 쓴다.
+
+title 은 사용자가 적은 말을 그대로 살린다. 낱말을 갈아 끼우지 마라.
+est_minutes 는 실제로 걸릴 시간이다. {max_min}분을 넘길 것 같으면 **범위를 줄여** 넣는다.
+reason 은 **왜 여기인지** 한 문장이다. 사용자가 이 말을 보고 승인 여부를 정한다.
+
+body 는 이 마크다운 형식을 그대로 쓴다:
+
+## 무엇을
+(한 문장 목표)
+
+## 완료 조건
+- [ ] 검증 가능한 조건
+- [ ] 검증 가능한 조건
+"""
+
+
+PLACE_RETRY = """방금 고른 자리가 검증에서 걸렸다.
+
+위반:
+{violations}
+
+- 주간 합계가 넘쳤으면 **뒤 주의 태스크**를 고르거나 est_minutes 를 줄여라.
+- {max_min}분을 넘겼으면 범위를 줄여 넣어라 — 여기서 쪼개지 않는다.
+- 순환이 생겼으면 blocks_refs 를 비워라.
+"""
+
+
+def format_plan_for_place(tasks: list[dict], tickets: list[dict]) -> str:
+    """주 > 태스크 > 티켓을 참조를 붙여 통째로 편다.
+
+    재설계(`format_scope_tickets`)와 달리 주 하나가 아니라 계획 전체다 —
+    어디에 놓일지를 아직 모르므로 범위를 미리 좁힐 수 없다.
+    """
+    by_task: dict[str, list[dict]] = {}
+    for t in tickets:
+        by_task.setdefault(t["task_id"], []).append(t)
+
+    lines: list[str] = []
+    week = object()
+    for task in tasks:
+        if task["week_index"] != week:
+            week = task["week_index"]
+            lines.append(f"[{week}주차] {task['week_title']}")
+        lines.append(f"  {task['ref']} {task['title']}")
+        rows = by_task.get(task["id"], [])
+        if not rows:
+            lines.append("    (티켓 없음)")
+        for row in rows:
+            deps = f" <- {','.join(row['depends_on_refs'])}" if row["depends_on_refs"] else ""
+            lines.append(
+                f"    {row['ref']} {row['title']} "
+                f"({row['est_minutes']}분, {row['status']}){deps}"
+            )
+    return "\n".join(lines)
+
+
+def place_prompt(
+    title: str,
+    body: str,
+    *,
+    plan: str,
+    nodes: list[dict],
+    constraints: Constraints,
+    domain: str | None,
+) -> str:
+    p = domains.preset(domain)
+    node_lines = "\n".join(f"- {n['node_key']} ({n['layer']}): {n['label']}" for n in nodes)
+    return PLACE.format(
+        title=title,
+        body=f"{body}\n" if body.strip() else "",
+        plan=plan,
+        nodes=node_lines or "- (없음)",
+        node_word=p.node_word,
+        max_min=MAX_TICKET_MINUTES,
+        hours_per_week=constraints.hours_per_week,
+        capacity=constraints.weekly_capacity_minutes,
+    )

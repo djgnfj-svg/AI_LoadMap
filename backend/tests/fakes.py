@@ -19,6 +19,7 @@ from app.models.schemas import (
     DraftWeeklyGoal,
     IntakeResult,
     LinkResult,
+    PlacementResult,
     SuccessCriterion,
 )
 
@@ -101,6 +102,7 @@ class FakePlanner:
         domain: str = "software",
         constraints: Constraints | None = None,
         n_tickets: int = 4,
+        placements: list[PlacementResult] | None = None,
     ) -> None:
         self.decompose_results = decompose_results or [make_decompose(n_tickets=n_tickets)]
         self.missing = missing or []
@@ -116,6 +118,8 @@ class FakePlanner:
             team_size=1,
         )
         self.n_tickets = n_tickets
+        # 티켓 투입 그래프용. 여러 개 주면 critic 재시도마다 다음 것을 낸다.
+        self.placements = placements or []
         self.calls: list[str] = []
 
     async def structured(
@@ -147,4 +151,9 @@ class FakePlanner:
             return ARCHITECT
         if name == "LinkResult":
             return make_links(self.n_tickets)
+        if name == "PlacementResult":
+            if not self.placements:
+                raise AssertionError("placements 를 안 준 FakePlanner 에 배치를 물었다.")
+            index = min(self.calls.count("PlacementResult") - 1, len(self.placements) - 1)
+            return self.placements[index]
         raise AssertionError(f"예상하지 못한 출력 모델: {name}")

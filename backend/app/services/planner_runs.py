@@ -65,6 +65,9 @@ class PlanRunner:
     def __init__(self, planner: Planner, max_retries: int | None = None) -> None:
         self._graph = build_plan_graph(planner, max_retries=max_retries)
         self._runs: dict[uuid.UUID, PlanRun] = {}
+        # 재설계·투입 그래프도 같은 planner 를 쓴다. 테스트가 runner 만 끼워 넣어도
+        # 그 가짜 planner 로 나머지 그래프가 서게 하려고 들고 있는다.
+        self.planner = planner
 
     def get(self, project_id: uuid.UUID) -> PlanRun | None:
         return self._runs.get(project_id)

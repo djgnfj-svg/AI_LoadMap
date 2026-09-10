@@ -504,3 +504,25 @@ button.ghost.back { margin: 0 0 18px -8px; font-size: 13px; }
   overflow: hidden; margin-bottom: 6px;
 }
 .project-card .bar i { display: block; height: 100%; background: var(--done); }
+
+/* 할 일 추가 (SPEC §3.6) — 만들다 생긴 일을 던지고 자리를 승인하는 자리 */
+.add-ticket-open { width: 100%; margin-top: 10px; }
+.add-ticket {
+  margin-top: 10px; padding: 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel-2); display: grid; gap: 8px;
+}
+.add-ticket h5 { margin: 0; font-size: 14px; }
+.add-ticket .change {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px; text-align: left;
+  border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+}
+/* 전역 input 이 width:100% 라 체크박스가 한 칸을 통째로 먹는다. */
+.add-ticket .change input { width: auto; flex: none; margin: 0; }
+.add-ticket .change.rejected { opacity: 0.5; }
+.add-ticket .change .type {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
+.add-ticket .change b { flex: 1; font-weight: 500; font-size: 13px; }
+.add-ticket .actions { display: flex; gap: 8px; }
+.add-ticket .actions button { flex: 1; }

@@ -39,6 +39,7 @@ backend/
     repair.py                  재시도 소진 시 결정적 복구
     plan_graph.py              intake → interview → blueprint → decompose → architect → link → critic → emit
     replan_graph.py            collect_signals → diagnose → replan_scope → propose → critic → diff
+    place_graph.py             propose → critic → diff — 만들다 생긴 일 하나의 자리를 잡는다
     replan.py                  제안 → 승인 단위 변환 (순환·120분 위반은 여기서 걸러낸다)
     persist.py                 emit — 검증된 초안을 DB 로
     llm.py                     Claude 호출 경계면 (테스트에서 가짜로 교체)
@@ -71,6 +72,23 @@ backend/
 `software` · `web` 프리셋은 `app/graphs/domains.py` 와 DB 제약에 남아 있습니다.
 안 내밀 뿐 지우지 않았습니다 — 그 전에 만든 로드맵(`seed_self.py` 포함)이 제 낱말로
 계속 읽혀야 하기 때문입니다.
+
+## 만들다 생긴 일
+
+「아 이것도 해야 하네」가 떠오르면 티켓 보드의 **+ 할 일 추가**에 한 줄 적습니다.
+어디에 놓이고 무엇 다음인지를 정해서 내밀고, 넣을지는 직접 고릅니다.
+
+```
+새 일 한 줄 ──► propose(AI) ──► critic(규칙) ──► 「2주차 · 넷코드 · 「전투」 앞」
+                   ▲               │                  └─ 승인해야 들어갑니다
+                   └─── 실패 ──────┘
+```
+
+계획을 세워 주는 도구는 많습니다. 계획대로 안 될 때 얽힌 것을 풀어 주는 것이
+이 도구가 하려는 일이고, 그게 사는 자리가 여기입니다.
+
+전까지 새 티켓이 들어올 문은 **재점검일 하나뿐**이었고, 그 문은 지연이 쌓여야
+열렸습니다. 떠오른 순간에 넣을 자리가 없었습니다.
 
 ## 계층
 
@@ -233,4 +251,6 @@ TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres pytest -q
 | POST | `/reviews/{id}/run` | 재설계 그래프 실행 |
 | POST | `/reviews/{id}/apply` | diff 항목별 승인/거절 |
 | PATCH | `/reviews/{id}` | 재점검일 미루기 (삭제는 없다) |
+| POST | `/projects/{id}/tickets` | **새로 생긴 일 하나 → 자리 제안** (적용은 안 한다) |
+| POST | `/projects/{id}/tickets/{session_id}/apply` | 자리 항목별 승인/거절 |
 | GET | `/projects/{id}/export` | 자를 수 있는 항목 (§0.3) |
