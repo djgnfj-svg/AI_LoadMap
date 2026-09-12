@@ -5,11 +5,14 @@
   * SPEC R2 — 감지에는 AI 가 개입하지 않는다. LLM 이 닿는 지점을 한 파일로 좁혀 둔다.
 """
 
+import logging
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 
 from app.config import get_settings
+
+log = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -45,7 +48,28 @@ class AnthropicPlanner:
             messages=[{"role": "user", "content": prompt}],
             output_format=output_model,
         )
+        self._log_usage(output_model.__name__, response)
         parsed = response.parsed_output
         if parsed is None:
             raise RuntimeError(f"{output_model.__name__} 파싱 실패: {response.stop_reason}")
         return parsed
+
+    def _log_usage(self, step: str, response) -> None:  # noqa: ANN001
+        """호출 하나의 토큰을 남긴다.
+
+        이걸 안 남기면 비용을 추정으로만 말할 수 있다 (TODO §13 이 그 상태였다).
+        사고 토큰은 따로 안 나온다 — `output_tokens` 에 포함돼 과금된다.
+        """
+        u = getattr(response, "usage", None)
+        if u is None:
+            return
+        log.info(
+            "llm %s model=%s in=%s out=%s cache_write=%s cache_read=%s stop=%s",
+            step,
+            self._model,
+            getattr(u, "input_tokens", "?"),
+            getattr(u, "output_tokens", "?"),
+            getattr(u, "cache_creation_input_tokens", None) or 0,
+            getattr(u, "cache_read_input_tokens", None) or 0,
+            response.stop_reason,
+        )

@@ -79,10 +79,11 @@
       그 행은 `0004_auth.sql` 이 심는 것뿐이라, 지워지면 복구 수단이 없다.
       → 없으면 만들도록 바꾼다.
 
-- [ ] **`scripts/setup.sh` 를 이미 있는 DB 에 다시 못 돌린다.** DB 가 있으면 넘어간 뒤
-      `0001` 부터 전부 다시 먹이는데 `0001_init.sql` 이 `create table` 이라 거기서 죽는다.
-      마이그레이션 이력 테이블이 없어 어디까지 적용됐는지 알 방법도 없다.
-      → 이력 테이블을 두거나, 적용 안 된 것만 고르게 한다.
+- [x] **`scripts/setup.sh` 를 이미 있는 DB 에 다시 못 돌린다.** (2026-09-12 해결)
+      `0011_schema_migrations.sql` 로 이력 테이블을 두고, 마이그레이션 적용을
+      **`scripts/migrate.sh` 로 따로 뺐다** — 배포에서는 npm·venv 없이 이것만 돌린다.
+      이력이 없던 DB 는 `--baseline 0010` 으로 한 번 맞춘다. `--status` 로 확인한다.
+      세 경우를 실제 Postgres 로 돌려 확인했다: 새 DB / 재실행 / 이력 없는 기존 DB.
 
 - [ ] **`scripts/setup.sh` 가 `psql` 을 요구한다.** DB 는 도커로 띄우는데 로컬에 psql 이
       없는 환경(현재 개발 PC)에서는 스크립트를 못 쓴다.
@@ -589,3 +590,16 @@ Cloudflare 무료는 **100초 유휴 타임아웃**이다. 이 코드의 SSE pin
 D11 완료 기준이 「공개 URL 동작」이다. **PC 가 꺼져 있거나 집 인터넷이 끊긴 순간에
 채점자가 열면 그걸로 끝이다.** Dockerfile 을 만들어 두면 Railway 로 옮기는 건 명령
 몇 개다 — 지금 PC 로 쓰며 조정하고, **제출 전에 옮긴다.** 컨테이너로 묶는 이유가 이것이다.
+
+### 넣은 것 — usage 로깅과 마이그레이션 이력 (2026-09-12)
+
+- [x] **`AnthropicPlanner._log_usage`** — 호출마다 `in / out / cache_write / cache_read /
+      stop` 을 남긴다. 전까지 `response.usage` 를 통째로 버려서 **§13 의 숫자가 전부
+      추정이었다.** 실사용 한 번이면 실측으로 바뀐다.
+      사고 토큰은 따로 안 나온다 — `output_tokens` 에 포함돼 과금된다.
+- [x] **`scripts/migrate.sh`** — §3 참고. `setup.sh` 는 이제 이걸 부른다.
+- [x] **DB 테스트 79개를 처음 돌렸다.** 그동안 Postgres 가 없어 전부 skip 이었다.
+      **190개 전부 통과** — §12 의 `weekly_goals.body` 저장·복원이 실제 DB 에서
+      검증된 것은 이번이 처음이다.
+
+남은 것은 §14 순서 그대로: `정적 서빙 + Dockerfile` → 터널 SSE 테스트 → LangSmith → UI 셋.

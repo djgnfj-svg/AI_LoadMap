@@ -37,10 +37,8 @@ else
   }
   echo "  ✓ 생성: $DB_NAME"
 fi
-for f in supabase/migrations/*.sql; do
-  psql -v ON_ERROR_STOP=1 -q -d "$DATABASE_URL" -f "$f" >/dev/null
-  echo "  ✓ $(basename "$f")"
-done
+# 적용 안 된 것만 먹인다 (scripts/migrate.sh). 배포에서는 이 스크립트만 따로 돌린다.
+DATABASE_URL="$DATABASE_URL" ./scripts/migrate.sh "$@"
 
 say "3/5  백엔드"
 cd "$ROOT/backend"
