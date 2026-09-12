@@ -2,9 +2,11 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app import db
 from app.api import alerts, auth, projects, reviews, tickets
@@ -91,7 +93,25 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         return {"status": "ok"}
 
+    _mount_frontend(app, settings.static_dir)
     return app
+
+
+def _mount_frontend(app: FastAPI, static_dir: str) -> None:
+    """빌드된 프론트엔드를 `/` 에 붙인다. 폴더가 없으면 아무것도 하지 않는다.
+
+    ⚠ **라우터를 모두 등록한 뒤에 불러야 한다.** 경로는 등록 순서로 맞춰지므로,
+    `/` 마운트가 먼저 오면 API 경로를 통째로 가린다.
+
+    개발 중에는 `frontend/dist` 가 없는 것이 정상이다 — vite 가 띄우고
+    `/projects` 같은 경로만 백엔드로 프록시한다 (`vite.config.ts`).
+    """
+    root = Path(static_dir)
+    if not (root / "index.html").is_file():
+        log.info("정적 파일 없음 — API 만 서빙한다 (%s)", root)
+        return
+    app.mount("/", StaticFiles(directory=root, html=True), name="frontend")
+    log.info("프론트엔드 서빙: %s", root)
 
 
 app = create_app()

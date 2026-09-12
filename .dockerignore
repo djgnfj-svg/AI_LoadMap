@@ -1,0 +1,17 @@
+# 최종 이미지에 들어갈 이유가 없는 것들. 빌드 컨텍스트를 작게 유지한다.
+.git
+.github
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/*.egg-info
+.env
+.env.local
+backend/tests
+docs
+TODO.md
+README.md

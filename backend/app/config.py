@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     cors_origins: str = "http://localhost:5173"
 
+    # 빌드된 프론트엔드. 이 폴더가 있으면 백엔드가 직접 서빙한다 —
+    # 그러면 오리진이 하나가 되어 CORS·쿠키·OAuth 오리진을 두 곳에 맞출 일이 없다.
+    # 개발 중에는 없는 것이 정상이다 (vite 가 프록시로 띄운다).
+    static_dir: str = str(_REPO_ROOT / "frontend" / "dist")
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -633,3 +633,35 @@ CPU 가 아니라 시간을 쓴다 (코어 하나로 충분하다).
 2. **생성 중에 인터넷이 안 끊기는가.** SSE 가 **몇 분간** 연결을 잡는다.
    무선이 불안하면 유선이 낫다. 끊겨도 계획 자체는 서버에서 계속 돌지만 진행 로그가 죽는다.
 3. 동시 사용자는 문제가 아니다 — 생성 하나가 1~2 MB 다. 혼자 쓰면 여유가 넘친다.
+
+### 넣은 것 — 정적 서빙 · Dockerfile · compose (2026-09-12)
+
+- [x] **백엔드가 빌드된 프론트를 서빙한다** (`main._mount_frontend`).
+      `frontend/dist` 가 있으면 `/` 에 붙이고, 없으면 아무것도 안 한다 (개발 중 정상).
+      **라우터를 모두 등록한 뒤에 붙인다** — 순서가 뒤바뀌면 API 경로를 통째로 가린다.
+      프론트는 **한 줄도 안 고쳤다**: `api.ts` 가 이미 상대 경로로 부르고 라우터가 없다.
+- [x] **`Dockerfile`** — 2단계. node 로 프론트를 빌드해 `dist/` 만 옮기고
+      (`node_modules` 137MB 는 최종 이미지에 안 들어간다), 실행 단계에 `psql` 을 깔아
+      **Windows 에 psql 을 안 깔아도 되게** 했다 (§3 의 세 번째 항목이 같이 풀린다).
+      뜰 때 `migrate.sh` 를 먼저 돌린다.
+- [x] **`docker-compose.yml`** — db + app, 터널은 `--profile tunnel`.
+      DB healthcheck 를 기다린다 (앱이 뜨자마자 붙어서 필요하다).
+      `TZ` 를 안 주면 스케줄러가 UTC 로 돌아 **9시간 밀린다** — 기본값을 넣어 뒀다.
+- [x] **`docs/DEPLOY.md`** — Windows 절차. 절전 끄기, Docker Desktop 자동 시작,
+      터널 붙인 직후 SSE 부터 확인하기.
+- [x] `.env.example` 에 배포용 변수 (`POSTGRES_PASSWORD` · `TZ` · 터널 토큰 등).
+
+#### ⚠ 확인 못 한 것 — 이미지 빌드 자체
+
+이 작업 환경에서 **도커 이미지 풀이 정책에 막혀 있다** (`production.cloudfront.docker.com`
+에 403). 그래서 `docker compose up --build` 를 한 번도 못 돌렸다.
+**첫 빌드가 첫 실전 테스트다.** 빌드 없이 확인한 것은 이렇다:
+
+- 정적 서빙과 API 공존 — 실제로 띄워서 확인 (`/` 200 · `/assets/*.js` 200 ·
+  `/projects` **401**(가려지지 않았다는 뜻) · `/nope` 404)
+- 컨테이너 CMD 와 같은 형태(`uvicorn app.main:app --app-dir backend`)로 뜨는지
+- HEALTHCHECK 한 줄이 종료코드 0 을 내는지
+- `docker compose config` 렌더링
+- 테스트 190개 (DB 테스트 포함) · ruff
+
+빌드에서 걸릴 만한 곳은 `pip install -e ./backend` 레이어와 `npm ci` 뿐이다.
