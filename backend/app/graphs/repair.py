@@ -19,13 +19,15 @@ from collections import Counter, defaultdict
 
 from app.graphs.critic import (
     CRITERIA_HEADING,
-    MIN_ACCEPTANCE_CRITERIA,
     NEXT_HEADING,
     acceptance_criteria,
     weak_criteria,
 )
 from app.models.schemas import (
     MAX_TICKET_MINUTES,
+    MIN_ACCEPTANCE_CRITERIA,
+    MIN_TASK_CHECKS,
+    MIN_WEEK_CHECKS,
     Constraints,
     DraftLink,
     DraftTask,
@@ -424,37 +426,84 @@ def _cover_criteria(d: PlanDraft) -> tuple[PlanDraft, list[str]]:
 
 
 def _fix_weak_bodies(d: PlanDraft) -> tuple[PlanDraft, list[str]]:
-    """완료 조건이 없거나 확인할 수 없는 본문에 형식을 채워 넣는다.
+    """확인 항목이 없거나 확인할 수 없는 본문에 형식을 채워 넣는다. 세 층 모두.
 
-    ⚠ 여기서 넣는 조건은 **지어낸 것**이다. LLM 이 세 번 다 못 쓴 자리라 비워 둘
+    ⚠ 여기서 넣는 항목은 **지어낸 것**이다. LLM 이 세 번 다 못 쓴 자리라 비워 둘
     수는 없고(그러면 끝났는지를 판단할 수 없다), 지어낸 티를 지우지도 않는다 —
     (확인 필요) 를 붙여 사용자가 고쳐 쓰게 한다.
     """
+    notes: list[str] = []
+
+    fixed = 0
+    for g in d.weekly_goals:
+        body, changed = _fill_checks(
+            g.body,
+            MIN_WEEK_CHECKS,
+            "확인",
+            [
+                f"(확인 필요) {g.title} 을 직접 실행해 눈으로 본다",
+                "(확인 필요) 이 주의 티켓이 전부 끝나 있다",
+            ],
+            head_fallback="",
+        )
+        g.body, fixed = body, fixed + changed
+    if fixed:
+        notes.append(f"확인 항목이 비어 있던 주 {fixed}개를 채웠다 — (확인 필요) 로 표시했다")
+
+    fixed = 0
+    for k in d.tasks:
+        body, changed = _fill_checks(
+            k.description,
+            MIN_TASK_CHECKS,
+            "확인",
+            [f"(확인 필요) {k.title} 의 결과를 직접 실행해 확인한다"],
+            head_fallback=f"## 무엇을\n{k.title}",
+        )
+        k.description, fixed = body, fixed + changed
+    if fixed:
+        notes.append(f"확인 항목이 비어 있던 태스크 {fixed}개를 채웠다 — (확인 필요) 로 표시했다")
+
     fixed = 0
     for t in d.tickets:
-        items = [i for i in acceptance_criteria(t.body) if i not in weak_criteria(t.body)]
-        if len(items) >= MIN_ACCEPTANCE_CRITERIA:
-            continue
-        kept = "\n".join(f"- [ ] {i}" for i in items)
-        stub = [
-            f"- [ ] (확인 필요) {t.title} 의 결과를 직접 실행해 확인한다",
-            "- [ ] (확인 필요) 관련 테스트 또는 빌드가 통과한다",
-        ][: MIN_ACCEPTANCE_CRITERIA - len(items)]
-        head = _strip_criteria(t.body).rstrip()
-        t.body = (
-            f"{head}\n\n## 완료 조건\n" + ("\n".join([kept, *stub]) if kept else "\n".join(stub))
-        ).strip() + "\n"
-        fixed += 1
-    if not fixed:
-        return d, []
-    return d, [
-        f"완료 조건이 비어 있던 티켓 {fixed}개에 확인 항목을 채웠다 "
-        "— (확인 필요) 로 표시했으니 직접 고쳐 쓰는 게 좋다"
-    ]
+        body, changed = _fill_checks(
+            t.body,
+            MIN_ACCEPTANCE_CRITERIA,
+            "완료 조건",
+            [
+                f"(확인 필요) {t.title} 의 결과를 직접 실행해 확인한다",
+                "(확인 필요) 관련 테스트 또는 빌드가 통과한다",
+            ],
+            head_fallback="## 무엇을\n(내용 없음)",
+        )
+        t.body, fixed = body, fixed + changed
+    if fixed:
+        notes.append(
+            f"완료 조건이 비어 있던 티켓 {fixed}개에 확인 항목을 채웠다 "
+            "— (확인 필요) 로 표시했으니 직접 고쳐 쓰는 게 좋다"
+        )
+
+    return d, notes
 
 
-def _strip_criteria(body: str) -> str:
-    """본문에서 「완료 조건」 섹션만 걷어낸다. 나머지 절은 그대로 둔다."""
+def _fill_checks(
+    body: str, minimum: int, heading: str, stubs: list[str], head_fallback: str
+) -> tuple[str, int]:
+    """본문 하나를 손본다. (고친 본문, 고쳤으면 1) 반환.
+
+    멀쩡한 항목은 남기고 모자란 만큼만 지어낸 것으로 채운다.
+    """
+    kept = [i for i in acceptance_criteria(body) if i not in weak_criteria(body)]
+    if len(kept) >= minimum:
+        return body, 0
+    filled = [*kept, *[s.strip() for s in stubs][: minimum - len(kept)]]
+    head = _strip_criteria(body, head_fallback).rstrip()
+    lines = "\n".join(f"- [ ] {i}" for i in filled)
+    joined = f"{head}\n\n## {heading}\n{lines}" if head else f"## {heading}\n{lines}"
+    return joined.strip() + "\n", 1
+
+
+def _strip_criteria(body: str, fallback: str = "## 무엇을\n(내용 없음)") -> str:
+    """본문에서 확인 항목 절만 걷어낸다. 나머지 절(무엇을·참고·안 하는 것)은 그대로 둔다."""
     out: list[str] = []
     skipping = False
     for line in (body or "").splitlines():
@@ -465,7 +514,7 @@ def _strip_criteria(body: str) -> str:
             skipping = False
         if not skipping:
             out.append(line)
-    return "\n".join(out) or "## 무엇을\n(내용 없음)"
+    return "\n".join(out).strip() or fallback
 
 
 def _renumber(d: PlanDraft) -> None:

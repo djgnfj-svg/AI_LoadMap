@@ -108,13 +108,14 @@ async def persist_plan(
         goal_target[g.key] = target
         goal_ids[g.key] = await conn.fetchval(
             """
-            insert into weekly_goals (project_id, week_index, title, target_date, covers)
-            values ($1, $2, $3, $4, $5)
+            insert into weekly_goals (project_id, week_index, title, body, target_date, covers)
+            values ($1, $2, $3, $4, $5, $6)
             returning id
             """,
             project_id,
             g.week_index,
             g.title,
+            g.body or None,
             target,
             g.covers,
         )
@@ -288,6 +289,7 @@ async def load_draft(conn: asyncpg.Connection, project_id: uuid.UUID) -> PlanDra
                 key=str(g["id"]),
                 week_index=g["week_index"],
                 title=g["title"],
+                body=g["body"] or "",
             )
             for g in goals
             if g["week_index"] is not None

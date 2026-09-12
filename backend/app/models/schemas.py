@@ -42,6 +42,13 @@ Diagnosis = Literal["지식부족", "범위과다", "의존성누락", "외부�
 # SPEC R1 — 티켓 1개 = 예상 소요 120분 이내
 MAX_TICKET_MINUTES = 120
 
+# SPEC §2.2 — 층마다 본문에 있어야 하는 확인 항목 최소 개수.
+# 프롬프트(요구하는 쪽)와 critic(검사하는 쪽)이 같은 값을 봐야 한다.
+# 주는 관리 단위라 여러 면을 봐야 하고, 태스크는 한 덩어리라 한 줄로 끝난다.
+MIN_WEEK_CHECKS = 2
+MIN_TASK_CHECKS = 1
+MIN_ACCEPTANCE_CRITERIA = 2
+
 
 # ─────────────────────────────────────────────────────────────
 # 제약 (SPEC §3.3 intake 출력)
@@ -139,6 +146,9 @@ class DraftWeeklyGoal(BaseModel):
     key: str
     week_index: int = Field(ge=1)
     title: str
+    # SPEC §2.2 주 본문 — 「## 확인 / ## 안 하는 것」.
+    # 제목이 「무엇이 있는가」면, 본문은 「그걸 어떻게 확인하는가」다.
+    body: str = ""
     # 이 주가 맡는 성공 기준 키. 비어 있어도 파싱은 되고, 대신 critic 이 잡는다.
     covers: list[str] = []
 
@@ -150,6 +160,7 @@ class DraftTask(BaseModel):
     weekly_goal_key: str
     task_number: int = Field(ge=1)  # 프로젝트 안에서 전역으로 센다
     title: str
+    # SPEC §2.2 태스크 본문 — 「## 무엇을 / ## 확인」. 티켓의 「참고」는 없다.
     description: str
 
 
@@ -216,6 +227,8 @@ class PlanDraft(BaseModel):
 ViolationCode = Literal[
     "ticket_over_120min",  # R1
     "uncovered_criterion",  # 청사진의 기준을 어느 주도 맡지 않는다
+    "weak_week_body",       # 주 본문의 확인 항목이 없거나 확인할 수 없다
+    "weak_task_body",       # 태스크 본문의 확인 항목이 없거나 확인할 수 없다
     "weak_ticket_body",     # 완료 조건이 없거나 확인할 수 없다
     "dependency_cycle",
     "weekly_overload",

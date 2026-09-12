@@ -215,6 +215,12 @@ class MockPlanner:
                         key=goal_key,
                         week_index=week,
                         title=f"{week}주 - {phase}",
+                        body=(
+                            "## 확인\n"
+                            f"- [ ] {phase} 결과를 직접 실행해 본다\n"
+                            f"- [ ] {week}주차 티켓이 전부 끝나 있다\n\n"
+                            "## 안 하는 것\n- (목업 데이터)\n"
+                        ),
                         covers=[],
                     )
                 )
@@ -227,7 +233,10 @@ class MockPlanner:
                         weekly_goal_key=goal_key,
                         task_number=task_no,
                         title=f"{phase} ({week}주)",
-                        description=desc,
+                        description=(
+                            f"## 무엇을\n{desc}\n\n"
+                            f"## 확인\n- [ ] {phase} 가 끝나 다음 주로 넘어갈 수 있다\n"
+                        ),
                     )
                 )
                 used = 0

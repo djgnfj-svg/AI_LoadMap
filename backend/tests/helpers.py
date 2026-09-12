@@ -68,21 +68,32 @@ class Seeded:
     tasks: list[uuid.UUID]
 
 
+# 주·태스크도 본문 형식이 있다 (SPEC §2.2). critic 이 검사하므로 샘플도 지켜야 한다.
+WEEK_BODY = (
+    "## 확인\n- [ ] 화면에서 첫 동작이 보인다\n- [ ] 티켓이 전부 끝나 있다\n\n"
+    "## 안 하는 것\n- (없음)\n"
+)
+
+
+def task_body(what: str) -> str:
+    return f"## 무엇을\n{what}\n\n## 확인\n- [ ] {what} 의 결과를 직접 실행해 본다\n"
+
+
 def sample_draft(n_tickets: int = 4) -> PlanDraft:
     """티켓 1~3 은 node_a, 4번부터는 node_b 에 걸린다. 1~3 은 1주, 나머지는 2주."""
     return PlanDraft(
         weekly_goals=[
-            DraftWeeklyGoal(key="w1", week_index=1, title="1주"),
-            DraftWeeklyGoal(key="w2", week_index=2, title="2주"),
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주", body=WEEK_BODY),
+            DraftWeeklyGoal(key="w2", week_index=2, title="2주", body=WEEK_BODY),
         ],
         tasks=[
             DraftTask(
                 key="k1", weekly_goal_key="w1", task_number=1,
-                title="태스크 1", description="1주의 태스크",
+                title="태스크 1", description=task_body("1주의 태스크"),
             ),
             DraftTask(
                 key="k2", weekly_goal_key="w2", task_number=2,
-                title="태스크 2", description="2주의 태스크",
+                title="태스크 2", description=task_body("2주의 태스크"),
             ),
         ],
         tickets=[

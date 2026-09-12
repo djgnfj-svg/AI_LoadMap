@@ -3,6 +3,7 @@ import { useMemo, type ReactNode } from "react";
 
 import type { ProjectView, Task, Ticket, WeeklyGoal } from "../api";
 import { ticketNumber } from "../tickets";
+import { BodyNote } from "./BodyNote";
 
 interface RowProps {
   ticket: Ticket;
@@ -140,6 +141,7 @@ export function TicketBoard({
               </span>
               <span className="meta">{goal?.target_date ?? ""}</span>
             </h3>
+            <BodyNote body={goal?.body ?? null} label="이 주의 확인" />
             <div className="week-bar">
               <span className="bar">
                 <i style={{ width: `${(done / all.length) * 100}%` }} />
@@ -165,6 +167,7 @@ export function TicketBoard({
                       {taskDone}/{tickets.length}
                     </span>
                   </h4>
+                  <BodyNote body={task.description} label="이 태스크의 확인" />
                   {tickets.map((t) => (
                     <TicketRow
                       key={t.id}

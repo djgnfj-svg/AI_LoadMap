@@ -7,6 +7,8 @@
 from app.graphs import domains
 from app.models.schemas import (
     MAX_TICKET_MINUTES,
+    MIN_TASK_CHECKS,
+    MIN_WEEK_CHECKS,
     Blueprint,
     Constraints,
     CriticResult,
@@ -123,6 +125,15 @@ DECOMPOSE = """목표를 주 -> 태스크 -> 티켓으로 분해하라.
   * covers 에는 그 주가 **끝내는** 완성 기준의 key 를 넣는다 (위 「완성 기준」 목록).
     거쳐가기만 하는 주는 비워 둔다. 모든 기준은 적어도 한 주가 맡아야 한다 —
     아무도 안 맡은 기준이 있으면 검증에서 걸린다.
+  * body 는 이 형식을 그대로 쓴다. 제목을 다시 풀어 쓰지 않는다.
+
+## 확인
+- [ ] 눈으로 확인할 수 있는 항목 ({week_checks}개 이상)
+- [ ] 눈으로 확인할 수 있는 항목
+
+## 안 하는 것
+- 이번 주에 손대지 않는 것 (없으면 절을 빼도 된다)
+
 - 태스크(tasks) 는 한 덩어리로 묶이는 티켓들의 집이다.
   **몇 개인지는 그 주의 목표가 정한다** — 한 덩어리로 끝나는 주면 하나다.
   개수를 맞추려고 쪼개거나 합치지 않는다.
@@ -130,6 +141,14 @@ DECOMPOSE = """목표를 주 -> 태스크 -> 티켓으로 분해하라.
   * **한 태스크는 한 주에만 산다.** weekly_goal_key 는 하나뿐이다.
   * task_number 는 프로젝트 전체에서 1부터 이어 센다 — 주마다 다시 세지 않는다.
   * 「무엇을 어떻게 짓는지」가 아니라 「이게 끝나면 화면에 무엇이 있는지」로 이름 짓는다.
+  * description 은 이 형식을 그대로 쓴다:
+
+## 무엇을
+(한 문장. 어디서 어디까지인지가 드러나게)
+
+## 확인
+- [ ] 눈으로 확인할 수 있는 항목 ({task_checks}개 이상)
+
 - 티켓(tickets) 은 실행 단위다. key 는 t1, t2 ... 로 매긴다.
   * ticket_number 는 **태스크마다 1부터 다시 센다.** 티켓을 부르는 이름이 NN-MM 이다.
   * est_minutes 는 {max_min} 이하. 예외 없다.
@@ -325,6 +344,8 @@ def decompose_prompt(
         stack=", ".join(c.stack) or "미정",
         team_size=c.team_size,
         max_min=MAX_TICKET_MINUTES,
+        week_checks=MIN_WEEK_CHECKS,
+        task_checks=MIN_TASK_CHECKS,
     )
 
 

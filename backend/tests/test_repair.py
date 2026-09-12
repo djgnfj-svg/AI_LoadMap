@@ -215,3 +215,35 @@ def draft_of(*, body: str) -> PlanDraft:
         nodes=[DraftNode(node_key="api", label="API", node_type="service", layer="backend")],
         links=[DraftLink(ticket_key="t1", node_key="api")],
     )
+
+
+# ── 주·태스크 본문도 채운다 (§2.2) ─────────────────────────────
+def test_주와_태스크_본문도_채운다():
+    """LLM 이 세 번 다 못 쓴 자리다. 비워 두면 끝났는지를 판단할 수 없다."""
+    fixed, notes = repair_draft(draft_of(body=BODY), CONSTRAINTS)
+
+    assert "## 확인" in fixed.weekly_goals[0].body
+    assert "## 확인" in fixed.tasks[0].description
+    assert run_critic(fixed, CONSTRAINTS).ok
+    # 지어낸 티를 지우지 않는다 — 사용자가 고쳐 쓸 수 있어야 한다.
+    assert all("(확인 필요)" in n or "확인 필요" in n for n in notes if "채웠다" in n)
+
+
+def test_주의_안_하는_것은_지우지_않는다():
+    """확인 절만 손본다. 나머지 절은 LLM 이 쓴 그대로 남는다."""
+    d = draft_of(body=BODY)
+    d.weekly_goals[0].body = "## 안 하는 것\n- 배포는 다음 주\n"
+    fixed, _ = repair_draft(d, CONSTRAINTS)
+
+    assert "배포는 다음 주" in fixed.weekly_goals[0].body
+    assert "## 확인" in fixed.weekly_goals[0].body
+    assert run_critic(fixed, CONSTRAINTS).ok
+
+
+def test_쓸_만한_주_확인은_남긴다():
+    d = draft_of(body=BODY)
+    d.weekly_goals[0].body = "## 확인\n- [ ] 화면에 목록이 뜬다\n"
+    fixed, _ = repair_draft(d, CONSTRAINTS)
+
+    assert "화면에 목록이 뜬다" in fixed.weekly_goals[0].body
+    assert run_critic(fixed, CONSTRAINTS).ok

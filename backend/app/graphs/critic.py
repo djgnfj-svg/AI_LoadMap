@@ -13,10 +13,9 @@ SPEC §3.3 이 명시한 4개 항목:
   5. 청사진 커버리지 — 사용자가 말한 완성 기준을 맡는 주가 있는가.
      AI 가 세운 기준을 AI 가 검사하는 게 아니다. 기준 key 와 주의 covers 를
      맞춰보는 집합 연산이라 LLM 이 없다 (R2).
-  6. 티켓 본문 — 완료 조건이 2개 이상 있고, 확인할 수 있는 말로 쓰였는가.
-     프롬프트는 전부터 이 형식을 요구했지만 아무도 검사하지 않았다. 검사하지 않는
-     요구는 지켜지지 않는다. 완료 조건이 없는 티켓은 「끝났는지」를 사용자가
-     판단할 수 없고, 그러면 실패 감지(§2.3)의 입력 자체가 흐려진다.
+  6. 본문 — 주 · 태스크 · 티켓 셋 다 확인 항목이 있고, 확인할 수 있는 말로 쓰였는가.
+     검사하지 않는 요구는 지켜지지 않는다. 끝났는지를 사용자가 판단할 수 없으면
+     실패 감지(§2.3)의 입력 자체가 흐려진다 — 이건 세 층에 똑같이 해당한다.
   7. 자기 참조 무결성 (끊긴 참조/중복 키/미연결 티켓).
      깨지면 emit 에서 DB 제약으로 터지므로, 터지기 전에 잡아 재시도로 돌린다.
 """
@@ -26,16 +25,18 @@ from collections import Counter, defaultdict
 
 from app.models.schemas import (
     MAX_TICKET_MINUTES,
+    MIN_ACCEPTANCE_CRITERIA,
+    MIN_TASK_CHECKS,
+    MIN_WEEK_CHECKS,
     Constraints,
     CriticResult,
     PlanDraft,
     Violation,
 )
 
-# 티켓 본문에 있어야 하는 완료 조건 최소 개수 (SPEC §2.2 본문 포맷)
-MIN_ACCEPTANCE_CRITERIA = 2
-
-CRITERIA_HEADING = re.compile(r"^\s*#{1,4}\s*완료\s*조건\s*$")
+# 세 층이 같은 체크박스 문법을 쓴다. 제목만 다르다 (티켓은 「완료 조건」,
+# 주·태스크는 「확인」) — 파서는 하나로 두고 제목만 둘 다 받는다.
+CRITERIA_HEADING = re.compile(r"^\s*#{1,4}\s*(?:완료\s*조건|확인)\s*$")
 NEXT_HEADING = re.compile(r"^\s*#{1,4}\s")
 _CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]\]\s*(.+?)\s*$")
 
@@ -58,7 +59,10 @@ MIN_CRITERION_LENGTH = 4
 
 
 def acceptance_criteria(body: str) -> list[str]:
-    """티켓 본문의 「완료 조건」 섹션에서 체크 항목을 뽑는다 (SPEC §2.2)."""
+    """본문의 「완료 조건」·「확인」 섹션에서 체크 항목을 뽑는다 (SPEC §2.2).
+
+    주 · 태스크 · 티켓 셋이 이 파서를 함께 쓴다. 제목만 다르고 문법은 같다.
+    """
     items: list[str] = []
     inside = False
     for line in (body or "").splitlines():
@@ -79,6 +83,47 @@ def weak_criteria(body: str) -> list[str]:
         for item in acceptance_criteria(body)
         if len(item) < MIN_CRITERION_LENGTH or _VAGUE.match(item)
     ]
+
+
+def _weak_bodies(
+    items: list[tuple[str, str]], minimum: int
+) -> tuple[list[str], list[str]]:
+    """(key, 본문) 목록에서 확인 항목이 모자라거나 흐린 것을 갈라 낸다.
+
+    주 · 태스크 · 티켓이 같은 검사를 받는다. 층마다 최소 개수만 다르다.
+    """
+    missing: list[str] = []
+    vague: list[str] = []
+    for key, body in items:
+        found = acceptance_criteria(body)
+        if len(found) < minimum:
+            missing.append(f"{key}({len(found)}개)")
+            continue
+        if weak := weak_criteria(body):
+            vague.append(f"{key}: {weak[0]}")
+    return missing, vague
+
+
+def _body_violation(
+    code: str, missing: list[str], vague: list[str], minimum: int, fmt: str
+) -> Violation | None:
+    """_weak_bodies 의 결과를 위반 하나로 접는다. 셋 다 같은 모양으로 낸다."""
+    if not missing and not vague:
+        return None
+    detail = []
+    if missing:
+        detail.append(f"확인 항목이 {minimum}개 미만: " + ", ".join(missing[:8]))
+    if vague:
+        detail.append("확인할 수 없는 항목: " + "; ".join(vague[:5]))
+    return Violation(
+        code=code,
+        message=(
+            "; ".join(detail)
+            + f". 본문은 「{fmt}」 형식이고, 확인 항목은 눈으로 확인할 수 있어야 한다 "
+            '("적 3종이 추격한다", "빌드 성공", "응답 200").'
+        ),
+        targets=[d.split("(")[0].split(":")[0] for d in [*missing, *vague]],
+    )
 
 
 def _find_cycle(edges: dict[str, list[str]]) -> list[str] | None:
@@ -278,39 +323,32 @@ def run_critic(
                 )
             )
 
-    # ── 6. 티켓 본문 — 완료 조건이 있고 확인할 수 있는가 (§2.2) ──
+    # ── 6. 본문 — 세 층 모두 확인 항목이 있고 확인할 수 있는가 (§2.2) ──
+    # 셋을 한 자리에서 검사한다. 층마다 최소 개수와 형식 문구만 다르다.
     if check_bodies:
-        missing: list[str] = []
-        vague: list[str] = []
-        for t in draft.tickets:
-            items = acceptance_criteria(t.body)
-            if len(items) < MIN_ACCEPTANCE_CRITERIA:
-                missing.append(f"{t.key}({len(items)}개)")
-                continue
-            weak = weak_criteria(t.body)
-            if weak:
-                vague.append(f"{t.key}: {weak[0]}")
-        if missing or vague:
-            detail = []
-            if missing:
-                detail.append(
-                    f"완료 조건이 {MIN_ACCEPTANCE_CRITERIA}개 미만인 티켓: "
-                    + ", ".join(missing[:8])
-                )
-            if vague:
-                detail.append("확인할 수 없는 완료 조건: " + "; ".join(vague[:5]))
-            violations.append(
-                Violation(
-                    code="weak_ticket_body",
-                    message=(
-                        "; ".join(detail)
-                        + ". 본문은 「## 무엇을 / ## 완료 조건 / ## 참고」 형식이고, "
-                        "완료 조건은 눈으로 확인할 수 있어야 한다 "
-                        "(\"테스트 3개 통과\", \"빌드 성공\", \"응답 200\")."
-                    ),
-                    targets=[d.split("(")[0].split(":")[0] for d in [*missing, *vague]],
-                )
-            )
+        for code, rows, minimum, fmt in (
+            (
+                "weak_week_body",
+                [(g.key, g.body) for g in draft.weekly_goals],
+                MIN_WEEK_CHECKS,
+                "## 확인 / ## 안 하는 것",
+            ),
+            (
+                "weak_task_body",
+                [(k.key, k.description) for k in draft.tasks],
+                MIN_TASK_CHECKS,
+                "## 무엇을 / ## 확인",
+            ),
+            (
+                "weak_ticket_body",
+                [(t.key, t.body) for t in draft.tickets],
+                MIN_ACCEPTANCE_CRITERIA,
+                "## 무엇을 / ## 완료 조건 / ## 참고",
+            ),
+        ):
+            missing, vague = _weak_bodies(rows, minimum)
+            if v := _body_violation(code, missing, vague, minimum, fmt):
+                violations.append(v)
 
     # ── 미연결 티켓 (§2.2 — 티켓은 노드를 물고 있어야 한다) ────
     linked_tickets = {link.ticket_key for link in draft.links}

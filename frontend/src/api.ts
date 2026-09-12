@@ -39,6 +39,8 @@ export interface WeeklyGoal {
   /** ⚠ 아직 주가 안 정해진 것은 null 이다. */
   week_index: number | null;
   title: string;
+  /** 「## 확인 / ## 안 하는 것」 (§2.2). 제목이 무엇이 있는가면 본문은 어떻게 확인하는가다. */
+  body: string | null;
   target_date: string | null;
   /** 이 주가 끝내는 완성 기준 key 목록 (§3.3). */
   covers: string[];
@@ -52,6 +54,7 @@ export interface Task {
   /** 프로젝트 안에서 전역으로 센다. 번호가 없으면 null. */
   task_number: number | null;
   title: string;
+  /** 「## 무엇을 / ## 확인」 (§2.2). */
   description: string | null;
   status: TaskStatus;
 }

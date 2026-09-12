@@ -211,6 +211,22 @@ input:focus, textarea:focus { outline: none; border-color: #1f6feb; }
 }
 .week-bar .bar i { display: block; height: 100%; background: var(--done); }
 
+/* 주·태스크 본문 (§2.2). 접혀 있는 것이 기본 — 보드의 주인공은 티켓이다. */
+.body-note { margin: 0 0 6px; }
+.body-note > summary {
+  font-size: 11px; color: var(--dim); cursor: pointer;
+  list-style: none; width: fit-content;
+}
+.body-note > summary::before { content: "▸ "; }
+.body-note[open] > summary::before { content: "▾ "; }
+.body-note > summary:hover { color: var(--muted); }
+.body-note pre {
+  margin: 4px 0 0; padding: 8px 10px;
+  font-size: 11px; line-height: 1.6; color: var(--muted);
+  background: var(--panel); border-radius: 8px;
+  white-space: pre-wrap; word-break: break-word;
+}
+
 .task { margin: 10px 0 0 0; }
 .task > h4 {
   font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 500;

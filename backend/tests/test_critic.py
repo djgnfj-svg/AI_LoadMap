@@ -18,6 +18,8 @@ from app.models.schemas import (
 
 # 완료 조건 2개짜리 최소 본문 (§2.2). critic 이 본문도 보기 때문에 필요하다.
 BODY = "## 무엇을\n한 문장\n\n## 완료 조건\n- [ ] 테스트 3개 통과\n- [ ] 빌드 성공\n"
+WEEK_BODY = "## 확인\n- [ ] 화면에 목록이 뜬다\n- [ ] 빌드 성공\n"
+TASK_BODY = "## 무엇을\n한 문장\n\n## 확인\n- [ ] 테스트 3개 통과\n"
 
 CONSTRAINTS = Constraints(
     duration_weeks=4, hours_per_week=10, level="intermediate", stack=["fastapi"], team_size=1
@@ -26,8 +28,11 @@ CONSTRAINTS = Constraints(
 
 def draft(**overrides) -> PlanDraft:
     base = dict(
-        tasks=[DraftTask(key="k1", weekly_goal_key="w1", task_number=1, title="태스크", description="")],
-        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
+        tasks=[DraftTask(
+                key="k1", weekly_goal_key="w1", task_number=1,
+                title="태스크", description=TASK_BODY,
+            )],
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주", body=WEEK_BODY)],
         tickets=[
             DraftTicket(
                 key="t1", task_key="k1", ticket_number=1,
@@ -226,7 +231,9 @@ def test_어느_주도_안_맡은_완성_기준은_걸린다():
     """사용자가 말한 완성 조건이 계획에서 사라지는 것을 여기서 잡는다."""
     d = draft(
         blueprint=BLUEPRINT,
-        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주", covers=["sc1"])],
+        weekly_goals=[
+            DraftWeeklyGoal(key="w1", week_index=1, title="1주", body=WEEK_BODY, covers=["sc1"])
+        ],
     )
     assert "uncovered_criterion" in codes(d)
 
@@ -235,7 +242,9 @@ def test_모든_기준을_주가_맡으면_통과한다():
     d = draft(
         blueprint=BLUEPRINT,
         weekly_goals=[
-            DraftWeeklyGoal(key="w1", week_index=1, title="1주", covers=["sc1", "sc2"])
+            DraftWeeklyGoal(
+                key="w1", week_index=1, title="1주", body=WEEK_BODY, covers=["sc1", "sc2"]
+            )
         ],
     )
     assert "uncovered_criterion" not in codes(d)
@@ -245,7 +254,10 @@ def test_없는_기준을_가리키면_끊긴_참조다():
     d = draft(
         blueprint=BLUEPRINT,
         weekly_goals=[
-            DraftWeeklyGoal(key="w1", week_index=1, title="1주", covers=["sc1", "sc2", "sc9"])
+            DraftWeeklyGoal(
+                key="w1", week_index=1, title="1주", body=WEEK_BODY,
+                covers=["sc1", "sc2", "sc9"],
+            )
         ],
     )
     assert "dangling_reference" in codes(d)
@@ -253,7 +265,7 @@ def test_없는_기준을_가리키면_끊긴_참조다():
 
 def test_기준이_없으면_커버리지를_따지지_않는다():
     """인터뷰를 전부 건너뛴 경우다. 없는 기준을 지어내 강요하지 않는다."""
-    d = draft(weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")])
+    d = draft(weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주", body=WEEK_BODY)])
     assert codes(d) == set()
 
 
@@ -299,3 +311,61 @@ def test_본문_검증은_끌_수_있다():
     """재설계 초안에는 이 규칙이 생기기 전에 쓰인 기존 티켓이 실려 있다."""
     result = run_critic(ticket("본문 없음"), CONSTRAINTS, check_bodies=False)
     assert "weak_ticket_body" not in {v.code for v in result.violations}
+
+
+# ── 주·태스크 본문 (§2.2) ──────────────────────────────────────
+# 티켓과 같은 검사를 받는다. 최소 개수와 제목만 다르다.
+def week(body: str) -> PlanDraft:
+    return draft(
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주", body=body)]
+    )
+
+
+def task(description: str) -> PlanDraft:
+    return draft(
+        tasks=[
+            DraftTask(key="k1", weekly_goal_key="w1", task_number=1,
+                      title="태스크", description=description)
+        ]
+    )
+
+
+def test_본문이_없는_주는_걸린다():
+    """제목 한 줄만으로는 그 주가 끝났는지 판단할 수 없다."""
+    assert "weak_week_body" in codes(week(""))
+
+
+def test_확인이_하나뿐인_주는_걸린다():
+    """주는 관리 단위라 한 항목으로는 모자란다 (태스크와 다른 점)."""
+    assert "weak_week_body" in codes(week("## 확인\n- [ ] 화면에 목록이 뜬다\n"))
+
+
+def test_확인할_수_없는_주_본문은_걸린다():
+    body = "## 확인\n- [ ] 화면에 목록이 뜬다\n- [ ] 잘 동작한다\n"
+    assert "weak_week_body" in codes(week(body))
+
+
+def test_안_하는_것은_없어도_된다():
+    """범위를 좁힐 게 없는 주도 있다. 없는 절을 지어내게 하지 않는다."""
+    assert "weak_week_body" not in codes(week(WEEK_BODY))
+
+
+def test_본문이_없는_태스크는_걸린다():
+    assert "weak_task_body" in codes(task(""))
+
+
+def test_확인_하나면_태스크는_통과한다():
+    """태스크는 한 덩어리라 한 줄로 끝난다."""
+    body = "## 무엇을\n로그인을 붙인다\n\n## 확인\n- [ ] 화면에 로그인 버튼이 뜬다\n"
+    assert "weak_task_body" not in codes(task(body))
+
+
+def test_주_태스크_본문_검증도_끌_수_있다():
+    """재설계·투입 초안에는 이 규칙이 생기기 전에 저장된 주·태스크가 실려 있다."""
+    d = draft(
+        weekly_goals=[DraftWeeklyGoal(key="w1", week_index=1, title="1주")],
+        tasks=[DraftTask(key="k1", weekly_goal_key="w1", task_number=1,
+                         title="태스크", description="")],
+    )
+    result = run_critic(d, CONSTRAINTS, check_bodies=False)
+    assert {"weak_week_body", "weak_task_body"} & {v.code for v in result.violations} == set()
